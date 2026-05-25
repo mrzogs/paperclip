@@ -1,0 +1,30 @@
+{
+  "trades": [
+    {
+      "entryKey": "2026-05-24T16:30",
+      "direction": "long",
+      "entry": 25076.5,
+      "initialStop": 25064.25,
+      "hermesProfile": "Dynamic Profile Map: Bull Continuation",
+      "targets": [
+        { "contracts": 2, "r": 2.0, "price": 25101.0 },
+        { "contracts": 3, "r": 3.0, "price": 25113.25 }
+      ],
+      "hermesAction": "dynamic_profile_map",
+      "exitReason": "stop",
+      "pnl": -125.0
+    },
+    {
+      "entryKey": "2026-05-24T17:00",
+      "direction": "short",
+      "entry": 25050.0,
+      "initialStop": 25060.0,
+      "targets": [
+        { "contracts": 1, "r": 1.0, "price": 25040.0 }
+      ],
+      "hermesAction": "dynamic_profile_map",
+      "exitReason": "stop",
+      "pnl": -20.0
+    }
+  ]
+}
