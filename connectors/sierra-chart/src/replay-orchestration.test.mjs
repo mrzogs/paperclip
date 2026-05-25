@@ -18,6 +18,7 @@ import {
   readReplayControllerStatus,
   readReplayCapableInstances,
   replayControllerPaths,
+  resolveReplayStudyPreset,
   resolveSierraEnvironment,
   validateReplaySpeedPreset,
   validateReplayControllerStatus,
@@ -111,6 +112,28 @@ test("normalizes replay controller commands for the ACSIL bridge", () => {
   assert.equal(command.replaySpeed, "960X");
   assert.equal(command.replaySpeedMultiplier, 960);
   assert.equal(command.safety.liveTradingAllowed, false);
+});
+
+test("includes candidate replay study input overrides in controller commands", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sierra-replay-controller-"));
+  const command = normalizeReplayControllerCommand({
+    action: "start",
+    requestedStartDateTime: "2026-05-20 23:00:00",
+    speed: "480X",
+    studyPreset: "candidate_88",
+    config: {
+      paper: { root: path.join(root, "paper"), symbol: "MNQM26_FUT_CME[M]" },
+      replay: { root, symbol: "MNQM26_FUT_CME[M]", chartbook: path.join(root, "Data", "OceanTrading-PaperTrading.cht") },
+      live: { root: path.join(root, "live") },
+    },
+  });
+
+  assert.equal(command.studyPreset, "candidate_88");
+  assert.equal(command.studyInputOverrides.studyName, "Ocean Trading VWAP Momentum Reclaim");
+  assert.equal(command.studyInputOverrides.intInputs["9"], 3);
+  assert.equal(command.studyInputOverrides.intInputs["18"], 4);
+  assert.equal(command.studyInputOverrides.floatInputs["2"], 350);
+  assert.equal(command.studyInputOverrides.floatInputs["23"], 0.35);
 });
 
 test("writes replay controller commands only under the replay root", () => {
@@ -231,6 +254,31 @@ test("extracts and verifies Sierra-loaded study settings from replay logs", () =
   assert.equal(actual.tpSplit, "0/2/3");
   assert.equal(verification.status, "exact");
   assert.equal(verification.mismatches.length, 0);
+});
+
+test("loads replay study presets for baseline and candidate validation", () => {
+  const baselinePreset = resolveReplayStudyPreset({ studyPreset: "v219_replay_alignment" });
+  const candidatePreset = resolveReplayStudyPreset({ studyPreset: "candidate-88" });
+
+  assert.equal(baselinePreset.expectedStudySettings.tpSplit, "0/2/3");
+  assert.equal(candidatePreset.expectedStudySettings.tpSplit, "0/4/1");
+  assert.equal(candidatePreset.strategyParameters.maxRiskDollars, 350);
+});
+
+test("applies replay study presets to settings verification", () => {
+  const messageEvents = parseReplayMessageLogText([
+    "2026-05-25  14:30:34.065 | Chart: MNQM26_FUT_CME[M]  5 Min  #1 | Study: Ocean Trading VWAP Momentum Reclaim 2R Capped v2.1.9 | Hermes Profile: Warming Up | VWAP Momentum Reclaim input schema applied: schema=6 version=v2.1.9-high-quality-defensive-profile qty=5 max_trades_per_day=8 tp1=0 tp2=2 tp3=3 risk_cap=500.00 cooldown_bars=10 allow_longs=yes allow_shorts=yes allow_after_22_london=no confluence_enabled=yes confluence_mode=4 hermes_tp_adaptation=no holiday_force_flat=yes trading_enabled=yes",
+    "2026-05-25  14:30:34.065 | Chart: MNQM26_FUT_CME[M]  5 Min  #1 | Study: Ocean Trading VWAP Momentum Reclaim 2R Capped v2.1.9 | Hermes Profile: Warming Up | VWAP Momentum Reclaim startup audit: version=v2.1.9-high-quality-defensive-profile schema=6 chart=1 study_id=1 symbol=MNQM26_FUT_CME tick_size=0.2500 qty=5 max_trades_per_day=8 risk_cap=500.00 tp_split=0/2/3 confluence_enabled=yes confluence_mode=4 hermes_tp_adaptation=no be_plus_one=yes cme_guard=yes holiday_force_flat=yes lucid_closeout=yes",
+  ].join("\n"));
+  const actual = extractReplayStudySettings(messageEvents);
+  const baselinePreset = resolveReplayStudyPreset({ studyPreset: "v219_replay_alignment" });
+  const candidatePreset = resolveReplayStudyPreset({ studyPreset: "candidate_88" });
+  const baselineVerification = verifyReplayStudySettings(actual, baselinePreset.expectedStudySettings);
+  const candidateVerification = verifyReplayStudySettings(actual, candidatePreset.expectedStudySettings);
+
+  assert.equal(baselineVerification.status, "exact");
+  assert.equal(candidateVerification.status, "mismatch");
+  assert.equal(candidatePreset.key, "candidate_88");
 });
 
 test("archives only replay Sim1 trade logs for the targeted date range", () => {

@@ -97,10 +97,13 @@ node connectors/sierra-chart/src/replay-orchestration.mjs ^
 ```sh
 node connectors/sierra-chart/src/replay-orchestration.mjs ^
   --mode replay ^
+  --study-preset v219_replay_alignment ^
   --requested-start "2026-05-20 23:00:00" ^
   --effective-start "2026-05-20 23:00:00" ^
   --speed 480X
 ```
+
+- Replay study presets are tracked in `connectors/sierra-chart/config/replay-study-presets.json`. Use `v219_replay_alignment` for the current baseline, `candidate_88` for the balanced replay target, and `candidate_98` for the aggressive replay target.
 
 - To archive existing replay `Sim1.simulated` trade logs for a target window before a restart, call the exported `archiveReplayTradeLogs()` helper from `src/replay-orchestration.mjs`. It is hard-scoped to `D:\Trading\SierraChart-Replay`.
 - To generate a replay-vs-backtest validation artifact instead of a raw snapshot:

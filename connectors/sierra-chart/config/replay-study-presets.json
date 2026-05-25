@@ -1,0 +1,107 @@
+{
+  "v219_replay_alignment": {
+    "label": "v2.1.9 replay alignment baseline",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "version": "v2.1.9-high-quality-defensive-profile",
+      "schema": 6,
+      "quantity": 5,
+      "maxTradesPerDay": 8,
+      "tpSplit": "0/2/3",
+      "tp1": 0,
+      "tp2": 2,
+      "tp3": 3,
+      "confluenceMode": 4,
+      "hermesTpAdaptation": "no"
+    }
+  },
+  "candidate_88": {
+    "label": "Sprint 100 candidate 88 replay target",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "quantity": 5,
+      "maxTradesPerDay": 3,
+      "tpSplit": "0/4/1",
+      "tp1": 0,
+      "tp2": 4,
+      "tp3": 1
+    },
+    "controllerInputs": {
+      "studyName": "Ocean Trading VWAP Momentum Reclaim",
+      "intInputs": {
+        "0": 5,
+        "3": 5,
+        "4": 10,
+        "7": 3,
+        "8": 15,
+        "9": 3,
+        "11": 1,
+        "12": 1,
+        "14": 1,
+        "17": 0,
+        "18": 4,
+        "19": 1,
+        "20": 1,
+        "21": 4,
+        "27": 0
+      },
+      "floatInputs": {
+        "2": 350,
+        "5": 2.75,
+        "6": 2.0,
+        "10": 0.12,
+        "22": 0.5,
+        "23": 0.35,
+        "24": 1.15,
+        "25": 18,
+        "26": 110
+      }
+    },
+    "strategyParameters": {
+      "filter": "trend_markov_no_range",
+      "maxRiskDollars": 350,
+      "slopeLength": 5,
+      "atrLength": 10,
+      "pullbackAtr": 2.75,
+      "stopAtr": 2.0,
+      "swingLookbackBars": 3,
+      "minBarsBetweenEntries": 15,
+      "minBodyAtr": 0.12,
+      "trendMinSeparation": 0.5,
+      "meanZMaxAbs": 0.35,
+      "volumeRatioMin": 1.15,
+      "minHealthyAtrPoints": 18,
+      "maxExtremeAtrPoints": 110,
+      "breakevenPlusPoints": 0.5
+    }
+  },
+  "candidate_98": {
+    "label": "Sprint 100 candidate 98 replay target",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "quantity": 6,
+      "maxTradesPerDay": 6,
+      "tpSplit": "1/2/3",
+      "tp1": 1,
+      "tp2": 2,
+      "tp3": 3
+    },
+    "strategyParameters": {
+      "filter": "trend_markov_no_range",
+      "maxRiskDollars": 375,
+      "slopeLength": 3,
+      "atrLength": 14,
+      "pullbackAtr": 2.25,
+      "stopAtr": 1.25,
+      "swingLookbackBars": 7,
+      "minBarsBetweenEntries": 8,
+      "minBodyAtr": 0.1,
+      "trendMinSeparation": 1,
+      "meanZMaxAbs": 0.5,
+      "volumeRatioMin": 1.3,
+      "minHealthyAtrPoints": 10,
+      "maxExtremeAtrPoints": 125,
+      "breakevenPlusPoints": 1
+    }
+  }
+}

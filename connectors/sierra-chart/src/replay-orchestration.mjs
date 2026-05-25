@@ -13,6 +13,7 @@ import {
 } from "./instance-registry.mjs";
 
 const DEFAULT_SOURCE_FILE = path.resolve("D:\\paperclip-codex\\ocean-trading-strategies\\strategies\\OceanTrading.cpp");
+const DEFAULT_REPLAY_STUDY_PRESETS_FILE = path.resolve("D:\\paperclip-codex\\connectors\\sierra-chart\\config\\replay-study-presets.json");
 const INSTANCE_ALIASES = new Map([
   ["paper", "paper"],
   ["sim", "paper"],
@@ -78,6 +79,27 @@ function readText(filePath) {
 function readJson(filePath) {
   const text = readText(filePath);
   return text ? JSON.parse(text) : null;
+}
+
+function loadReplayStudyPresets(options = {}) {
+  const presetsFile = options.replayStudyPresetsFile || DEFAULT_REPLAY_STUDY_PRESETS_FILE;
+  const presets = readJson(presetsFile);
+  return presets && typeof presets === "object" ? presets : {};
+}
+
+export function resolveReplayStudyPreset(options = {}) {
+  const presetKey = options.studyPreset || options.replayStudyPreset || null;
+  if (!presetKey) return null;
+  const normalizedKey = String(presetKey).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  const presets = loadReplayStudyPresets(options);
+  const preset = presets[normalizedKey];
+  if (!preset) {
+    throw new Error(`Unknown replay study preset: ${presetKey}`);
+  }
+  return {
+    key: normalizedKey,
+    ...preset,
+  };
 }
 
 function listFiles(dir, predicate = () => true, limit = 50) {
@@ -1084,8 +1106,9 @@ export function replayControllerPaths(options = {}) {
 }
 
 export function normalizeReplayControllerCommand(options = {}) {
+  const studyPreset = resolveReplayStudyPreset(options);
   const action = String(options.action || "status").trim().toLowerCase();
-  const allowedActions = new Set(["start", "stop", "pause", "resume", "status"]);
+  const allowedActions = new Set(["apply_settings", "start", "stop", "pause", "resume", "status"]);
   if (!allowedActions.has(action)) {
     throw new Error(`Replay controller action must be one of ${Array.from(allowedActions).join(", ")}, received: ${options.action}`);
   }
@@ -1116,7 +1139,9 @@ export function normalizeReplayControllerCommand(options = {}) {
     replayMode: options.replayMode || "accurate_trading_system_back_test",
     clearTradeSimulationData: options.clearTradeSimulationData !== false,
     skipEmptyPeriods: options.skipEmptyPeriods !== false,
-    expectedStudy: options.expectedStudy || "Ocean Trading VWAP Momentum Reclaim",
+    expectedStudy: options.expectedStudy || studyPreset?.expectedStudy || "Ocean Trading VWAP Momentum Reclaim",
+    studyPreset: studyPreset?.key || null,
+    studyInputOverrides: options.studyInputOverrides || studyPreset?.controllerInputs || null,
     safety: {
       liveTradingAllowed: false,
       allowedRoot: replayControllerPaths(options).instance.root,
@@ -1255,10 +1280,11 @@ export function buildReplayValidationReport(options = {}) {
   const mode = normalizeMode(options.mode || "replay");
   const resolved = resolveSierraEnvironment(mode, options);
   const instance = resolved.instance;
+  const studyPreset = resolveReplayStudyPreset(options);
   const running = detectRunningSierraInstances(options).filter((processInfo) => processInfo.mode === mode);
   const messageLogs = listInstanceMessageLogs(instance, { limit: options.logLimit || 3 });
   const tradeLogs = listInstanceTradeLogs(instance, { limit: options.logLimit || 3 });
-  const latestMessageLog = messageLogs[0]?.fullPath || null;
+  const latestMessageLog = options.messageLogPath || messageLogs[0]?.fullPath || null;
   const latestTradeLog = tradeLogs[0]?.fullPath || null;
   const sourceFile = options.sourceFile || DEFAULT_SOURCE_FILE;
   const sourceText = readText(sourceFile);
@@ -1271,8 +1297,9 @@ export function buildReplayValidationReport(options = {}) {
   const replayRequest = options.requestedStartDateTime || options.startDateTime || options.replaySpeed || options.speed
     ? buildReplayRunRequest(options)
     : null;
-  const settingsVerification = options.expectedStudySettings
-    ? verifyReplayStudySettings(studySettings, options.expectedStudySettings)
+  const expectedStudySettings = options.expectedStudySettings || studyPreset?.expectedStudySettings || null;
+  const settingsVerification = expectedStudySettings
+    ? verifyReplayStudySettings(studySettings, expectedStudySettings)
     : null;
 
   return {
@@ -1289,6 +1316,7 @@ export function buildReplayValidationReport(options = {}) {
     dllPath,
     dllSha256: hashFileSha256(dllPath),
     studyCatalog,
+    studyPreset,
     studySettings,
     settingsVerification,
     messageEvents,
@@ -1361,6 +1389,7 @@ export function buildReplayValidationArtifact(options = {}) {
       dllPath: report.dllPath,
       dllSha256: report.dllSha256,
       strategyVersion: assumptions.strategyVersion,
+      studyPreset: report.studyPreset,
       replaySpeed: report.replayRequest?.replaySpeed || null,
       requestedStartDateTime: report.replayRequest?.requestedStartDateTime || null,
       effectiveStartDateTime: report.replayRequest?.effectiveStartDateTime || null,
@@ -1392,6 +1421,7 @@ function parseArgs(argv) {
     else if (value === "--requested-end") options.requestedEndDateTime = argv[++index];
     else if (value === "--effective-end") options.effectiveEndDateTime = argv[++index];
     else if (value === "--speed") options.replaySpeed = argv[++index];
+    else if (value === "--study-preset") options.studyPreset = argv[++index];
     else if (value === "--controller-action") options.controllerAction = argv[++index];
     else if (value === "--controller-command-id") options.commandId = argv[++index];
     else if (value === "--controller-chart") options.chartNumber = Number(argv[++index]);

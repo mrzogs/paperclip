@@ -7,6 +7,7 @@
 #include "sierrachart.h"
 
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 
@@ -14,7 +15,16 @@ SCDLLName("Ocean Trading Replay Controller")
 
 namespace {
 
-const char* VERSION = "v0.1.1";
+const char* VERSION = "v0.1.2";
+const char* DEFAULT_COMMAND_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-command.json";
+const char* DEFAULT_STATUS_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-status.json";
+
+struct StudyInputOverrides
+{
+    std::string StudyName;
+    std::map<int, int> IntInputs;
+    std::map<int, double> FloatInputs;
+};
 
 std::string ReadTextFile(const SCString& path)
 {
@@ -140,6 +150,112 @@ bool ExtractJsonBool(const std::string& json, const char* key, const bool fallba
     return json.compare(valueStart, 4, "true") == 0;
 }
 
+std::string ExtractJsonObject(const std::string& json, const char* key)
+{
+    const std::string marker = std::string("\"") + key + "\"";
+    const size_t keyPos = json.find(marker);
+    if (keyPos == std::string::npos)
+        return "";
+
+    const size_t colonPos = json.find(':', keyPos + marker.size());
+    if (colonPos == std::string::npos)
+        return "";
+
+    size_t valueStart = colonPos + 1;
+    while (valueStart < json.size() && (json[valueStart] == ' ' || json[valueStart] == '\t' || json[valueStart] == '\r' || json[valueStart] == '\n'))
+        ++valueStart;
+
+    if (valueStart >= json.size() || json[valueStart] != '{')
+        return "";
+
+    int depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    for (size_t index = valueStart; index < json.size(); ++index)
+    {
+        const char ch = json[index];
+        if (inString)
+        {
+            if (escaped)
+                escaped = false;
+            else if (ch == '\\')
+                escaped = true;
+            else if (ch == '"')
+                inString = false;
+            continue;
+        }
+
+        if (ch == '"')
+        {
+            inString = true;
+            continue;
+        }
+        if (ch == '{')
+            ++depth;
+        else if (ch == '}')
+        {
+            --depth;
+            if (depth == 0)
+                return json.substr(valueStart, index - valueStart + 1);
+        }
+    }
+    return "";
+}
+
+void ParseNumericMapObject(const std::string& json, std::map<int, double>& output)
+{
+    size_t searchFrom = 0;
+    while (searchFrom < json.size())
+    {
+        const size_t keyStart = json.find('"', searchFrom);
+        if (keyStart == std::string::npos)
+            break;
+        const size_t keyEnd = json.find('"', keyStart + 1);
+        if (keyEnd == std::string::npos)
+            break;
+        const std::string keyText = json.substr(keyStart + 1, keyEnd - keyStart - 1);
+        const size_t colonPos = json.find(':', keyEnd + 1);
+        if (colonPos == std::string::npos)
+            break;
+
+        size_t valueStart = colonPos + 1;
+        while (valueStart < json.size() && (json[valueStart] == ' ' || json[valueStart] == '\t' || json[valueStart] == '\r' || json[valueStart] == '\n'))
+            ++valueStart;
+
+        char* endPtr = nullptr;
+        const double value = std::strtod(json.c_str() + valueStart, &endPtr);
+        if (endPtr != nullptr && endPtr != json.c_str() + valueStart)
+        {
+            output[std::atoi(keyText.c_str())] = value;
+            searchFrom = static_cast<size_t>(endPtr - json.c_str());
+        }
+        else
+        {
+            searchFrom = keyEnd + 1;
+        }
+    }
+}
+
+StudyInputOverrides ExtractStudyInputOverrides(const std::string& json)
+{
+    StudyInputOverrides overrides;
+    const std::string root = ExtractJsonObject(json, "studyInputOverrides");
+    if (root.empty())
+        return overrides;
+
+    overrides.StudyName = ExtractJsonString(root, "studyName");
+
+    const std::string intInputsObject = ExtractJsonObject(root, "intInputs");
+    std::map<int, double> intInputsRaw;
+    ParseNumericMapObject(intInputsObject, intInputsRaw);
+    for (const auto& entry : intInputsRaw)
+        overrides.IntInputs[entry.first] = static_cast<int>(entry.second);
+
+    const std::string floatInputsObject = ExtractJsonObject(root, "floatInputs");
+    ParseNumericMapObject(floatInputsObject, overrides.FloatInputs);
+    return overrides;
+}
+
 bool ParseDateTime(const std::string& text, SCDateTime& output)
 {
     int year = 0;
@@ -173,9 +289,7 @@ std::string DateTimeToText(const SCDateTime& value)
 
 SCString DefaultControlDir(SCStudyInterfaceRef sc)
 {
-    SCString path = sc.DataFilesFolder();
-    path += "\\..\\connector-control";
-    return path;
+    return "D:\\Trading\\SierraChart-Replay\\connector-control";
 }
 
 void WriteStatus(
@@ -186,7 +300,8 @@ void WriteStatus(
     const std::string& requestedStart,
     const std::string& replaySpeed,
     const std::string& status,
-    const std::string& error)
+    const std::string& error,
+    const std::string& detail = "")
 {
     SCDateTime currentDateTime = sc.BaseDateTimeIn[sc.ArraySize > 0 ? sc.ArraySize - 1 : 0];
     std::ostringstream json;
@@ -202,9 +317,65 @@ void WriteStatus(
         << "  \"currentChartDateTime\": \"" << JsonEscape(DateTimeToText(currentDateTime)) << "\",\n"
         << "  \"replaySpeed\": \"" << JsonEscape(replaySpeed) << "\",\n"
         << "  \"isReplayRunning\": " << (sc.IsReplayRunning() ? "true" : "false") << ",\n"
+        << "  \"detail\": " << (detail.empty() ? "null" : ("\"" + JsonEscape(detail) + "\"")) << ",\n"
         << "  \"error\": " << (error.empty() ? "null" : ("\"" + JsonEscape(error) + "\"")) << "\n"
         << "}\n";
     WriteTextFile(statusPath, json.str());
+}
+
+bool ApplyStudyInputOverrides(
+    SCStudyInterfaceRef sc,
+    const int chartNumber,
+    const StudyInputOverrides& overrides,
+    std::string& detail,
+    std::string& error)
+{
+    if (overrides.StudyName.empty())
+    {
+        error = "studyInputOverrides.studyName is required";
+        return false;
+    }
+
+    const int studyId = sc.GetStudyIDByName(chartNumber, overrides.StudyName.c_str(), 0);
+    if (studyId <= 0)
+    {
+        error = "Unable to find target study by name";
+        return false;
+    }
+
+    std::ostringstream applied;
+    bool first = true;
+    for (const auto& entry : overrides.IntInputs)
+    {
+        const int result = sc.SetChartStudyInputInt(chartNumber, studyId, entry.first, entry.second);
+        if (result == 0)
+        {
+            error = "Failed to apply integer study input";
+            return false;
+        }
+        if (!first)
+            applied << "; ";
+        applied << "int[" << entry.first << "]=" << entry.second;
+        first = false;
+    }
+
+    for (const auto& entry : overrides.FloatInputs)
+    {
+        const int result = sc.SetChartStudyInputFloat(chartNumber, studyId, entry.first, entry.second);
+        if (result == 0)
+        {
+            error = "Failed to apply float study input";
+            return false;
+        }
+        if (!first)
+            applied << "; ";
+        applied << "float[" << entry.first << "]=" << entry.second;
+        first = false;
+    }
+
+    sc.RecalculateChart(chartNumber);
+    detail = applied.str();
+    return true;
 }
 
 } // namespace
@@ -217,7 +388,7 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
 
     if (sc.SetDefaults)
     {
-        sc.GraphName = "Ocean Trading Replay Controller v0.1.1";
+        sc.GraphName = "Ocean Trading Replay Controller v0.1.2";
         sc.StudyDescription = "Replay-only command bridge for Ocean Trading Sierra connector.";
         sc.AutoLoop = 0;
         sc.UpdateAlways = 1;
@@ -225,10 +396,10 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
         sc.HideStudy = 1;
 
         CommandFilePath.Name = "Command File Path";
-        CommandFilePath.SetPathAndFileName("");
+        CommandFilePath.SetPathAndFileName(DEFAULT_COMMAND_PATH);
 
         StatusFilePath.Name = "Status File Path";
-        StatusFilePath.SetPathAndFileName("");
+        StatusFilePath.SetPathAndFileName(DEFAULT_STATUS_PATH);
 
         EnableController.Name = "Enable Replay Controller";
         EnableController.SetYesNo(1);
@@ -278,11 +449,27 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
     const bool clearTradeData = ExtractJsonBool(commandText, "clearTradeSimulationData", true);
     const bool skipEmptyPeriods = ExtractJsonBool(commandText, "skipEmptyPeriods", true);
 
+    const StudyInputOverrides overrides = ExtractStudyInputOverrides(commandText);
+
     std::string error;
+    std::string detail;
     std::string status = "accepted";
 
-    if (action == "start")
+    if (action == "apply_settings")
     {
+        if (ApplyStudyInputOverrides(sc, chartNumber, overrides, detail, error))
+            status = "settings_applied";
+        else
+            status = "error";
+    }
+    else if (action == "start")
+    {
+        if (!overrides.StudyName.empty() && !ApplyStudyInputOverrides(sc, chartNumber, overrides, detail, error))
+        {
+            status = "error";
+        }
+        else
+        {
         SCDateTime startDateTime;
         if (!ParseDateTime(requestedStart, startDateTime))
         {
@@ -300,6 +487,7 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
             params.ReplayMode = n_ACSIL::REPLAY_MODE_ACCURATE_TRADING_SYSTEM_BACK_TEST;
             sc.StartChartReplayNew(params);
             status = "start_requested";
+        }
         }
     }
     else if (action == "stop")
@@ -327,5 +515,5 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
         status = "error";
     }
 
-    WriteStatus(sc, statusPath, commandId, action, requestedStart, replaySpeed, status, error);
+    WriteStatus(sc, statusPath, commandId, action, requestedStart, replaySpeed, status, error, detail);
 }
