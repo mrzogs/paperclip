@@ -4,7 +4,8 @@ param(
   [int]$WindowX = 0,
   [int]$WindowY = 0,
   [int]$WindowWidth = 1920,
-  [int]$WindowHeight = 1030
+  [int]$WindowHeight = 1030,
+  [switch]$MoveWindow
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,9 +47,16 @@ public class SierraReplayUi {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
 }
 "@
 
@@ -75,15 +83,24 @@ function Press-CtrlV {
 }
 
 [SierraReplayUi]::ShowWindow($process.MainWindowHandle, 9) | Out-Null
-[SierraReplayUi]::MoveWindow($process.MainWindowHandle, $WindowX, $WindowY, $WindowWidth, $WindowHeight, $true) | Out-Null
+if ($MoveWindow) {
+  [SierraReplayUi]::MoveWindow($process.MainWindowHandle, $WindowX, $WindowY, $WindowWidth, $WindowHeight, $true) | Out-Null
+}
 [SierraReplayUi]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 750
 
+$windowRect = New-Object SierraReplayUi+RECT
+if (-not [SierraReplayUi]::GetWindowRect($process.MainWindowHandle, [ref]$windowRect)) {
+  throw "Could not read replay Sierra window position."
+}
+$BaseX = $windowRect.Left
+$BaseY = $windowRect.Top
+
 # Coordinates are relative to the normalized replay Sierra window above.
-# Coordinates are calibrated against the normalized replay Sierra window above.
-Click-At ($WindowX + 512) ($WindowY + 60)   # Open Cbook toolbar button.
+# Coordinates are calibrated against the replay Sierra window client area.
+Click-At ($BaseX + 512) ($BaseY + 60)   # Open Cbook toolbar button.
 Start-Sleep -Seconds 1
-Click-At ($WindowX + 785) ($WindowY + 698)  # File Name input in Open Chartbook dialog.
+Click-At ($BaseX + 785) ($BaseY + 698)  # File Name input in Open Chartbook dialog.
 
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Clipboard]::SetText($ChartbookName)
