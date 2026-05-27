@@ -300,6 +300,36 @@ test("includes VWAP Wave Pullback replay study input overrides in controller com
   assert.equal(command.studyInputOverrides.floatInputs["13"], 250);
 });
 
+test("includes configurable VWAP Wave Pullback five-target replay overrides", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sierra-replay-controller-"));
+  const command = normalizeReplayControllerCommand({
+    action: "start",
+    requestedStartDateTime: "2026-04-06 00:00:00",
+    requestedEndDateTime: "2026-04-07 03:00:00",
+    speed: "480X",
+    studyPreset: "vwap_wave_pullback_split_be",
+    config: {
+      paper: { root: path.join(root, "paper"), symbol: "MNQM26_FUT_CME[M]" },
+      replay: { root, symbol: "MNQM26_FUT_CME[M]", chartbook: path.join(root, "Data", "OceanTrading-PaperTrading.cht") },
+      live: { root: path.join(root, "live") },
+    },
+  });
+
+  assert.equal(command.expectedStudy, "VWAP Wave Pullback");
+  assert.equal(command.studyInputOverrides.intInputs["0"], 3);
+  assert.equal(command.studyInputOverrides.intInputs["16"], 0);
+  assert.equal(command.studyInputOverrides.intInputs["22"], 1);
+  assert.equal(command.studyInputOverrides.intInputs["23"], 0);
+  assert.equal(command.studyInputOverrides.intInputs["24"], 1);
+  assert.equal(command.studyInputOverrides.intInputs["31"], 0);
+  assert.equal(command.studyInputOverrides.intInputs["32"], 1);
+  assert.equal(command.studyInputOverrides.intInputs["33"], 1);
+  assert.equal(command.studyInputOverrides.floatInputs["13"], 400);
+  assert.equal(command.studyInputOverrides.floatInputs["27"], 0.75);
+  assert.equal(command.studyInputOverrides.floatInputs["29"], 3);
+  assert.equal(command.studyInputOverrides.floatInputs["30"], 4);
+});
+
 test("writes replay controller commands only under the replay root", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sierra-replay-controller-"));
   const config = {
@@ -557,6 +587,26 @@ test("extracts replay study settings from bracket-plan diagnostics", () => {
   assert.equal(settings.version, "v0.1.0-replay-parity");
   assert.equal(settings.quantity, 2);
   assert.equal(settings.chart.includes("Replay 480X"), true);
+});
+
+test("parses VWAP Wave configurable five-target bracket plans", () => {
+  const messageLogText = [
+    "2026-05-27  20:01:56.997 | Chart: Replay 480X: MNQM26_FUT_CME[M]  5 Min  #1 | Study: VWAP Wave Pullback Replay Parity v0.3.0 | VWAP Wave Pullback long bracket plan: session_profile=all_sessions hermes_profile=wave_pullback_configurable_targets hermes_action=configurable_tp_ladder_tp2_hold_ratchet qty=3 bar_index=21375 bar_time=2026-04-06 23:50:00 entry=24318.75 stop=24257.00 risk=61.75 planned_risk=370.50 tick_size=0.2500 atr=17.8440 vwap=24301.3730 target1_r=1.00 target1=24380.50 qty1=1 target2_r=1.50 target2=24411.38 qty2=1 target3_r=2.00 target3=24442.25 qty3=1 target4_r=3.00 target4=24504.00 qty4=0 target5_r=4.00 target5=24565.75 qty5=0 target_stop_ratchet=yes target_stop_ratchet_trigger=tp2 target_stop_ratchet_stop=tp1 target_stop_ratchet_hold_bars=2 target_stop_ratchet_vwap_trend=yes breakeven=yes breakeven_mode=atr breakeven_trigger_value=2.00 breakeven_offset_points=1.00 max_risk_dollars=400.00 schema=3 version=v0.3.0-configurable-targets-risk400",
+  ].join("\n");
+  const events = parseReplayMessageLogText(messageLogText);
+  const settings = extractReplayStudySettings(events);
+  const trades = buildReplayTradeLedger({ messageLogText, tradeLogBuffers: [], sourceFile: "fixture.log" });
+
+  assert.equal(settings.version, "v0.3.0-configurable-targets-risk400");
+  assert.equal(settings.tpSplit, "1/1/1/0/0");
+  assert.equal(settings.targetRs, "1/1.5/2/3/4");
+  assert.equal(settings.maxRiskDollars, 400);
+  assert.equal(settings.targetStopRatchet, "yes");
+  assert.equal(settings.targetStopRatchetHoldBars, 2);
+  assert.equal(trades.length, 1);
+  assert.equal(trades[0].totalContracts, 3);
+  assert.equal(trades[0].targetSplit, "1/1/1");
+  assert.deepEqual(trades[0].targetRs, [1, 1.5, 2]);
 });
 
 test("links Sierra market fills to the unique planned trade even when entry slips by more than a tick", () => {

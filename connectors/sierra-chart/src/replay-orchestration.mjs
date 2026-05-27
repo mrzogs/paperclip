@@ -938,19 +938,40 @@ export function extractReplayStudySettings(messageEvents = []) {
   const inputSchema = messageEvents.filter((event) => event.type === "input_schema_applied").at(-1) || null;
   const bracketPlan = messageEvents.filter((event) => event.type === "bracket_plan").at(-1) || null;
   if (!startupAudit && !inputSchema && !bracketPlan) return null;
-  const bracketQty1 = bracketPlan?.payload?.qty1 != null ? Number(bracketPlan.payload.qty1) : null;
-  const bracketQty2 = bracketPlan?.payload?.qty2 != null ? Number(bracketPlan.payload.qty2) : null;
-  const bracketQty3 = bracketPlan?.payload?.qty3 != null ? Number(bracketPlan.payload.qty3) : null;
+  const bracketPayload = bracketPlan?.payload || {};
+  const bracketQuantities = [1, 2, 3, 4, 5].map((slot) =>
+    bracketPayload[`qty${slot}`] != null ? Number(bracketPayload[`qty${slot}`]) : null
+  );
+  const bracketTargetRs = [1, 2, 3, 4, 5].map((slot) =>
+    bracketPayload[`target${slot}_r`] != null ? Number(bracketPayload[`target${slot}_r`]) : null
+  );
+  const completeFiveTargetSplit = bracketQuantities.every((value) => value != null);
+  const completeFiveTargetRs = bracketTargetRs.every((value) => value != null);
+  const bracketQty1 = bracketQuantities[0];
+  const bracketQty2 = bracketQuantities[1];
+  const bracketQty3 = bracketQuantities[2];
+  const bracketQty4 = bracketQuantities[3];
+  const bracketQty5 = bracketQuantities[4];
   return {
     study: startupAudit?.study || inputSchema?.study || null,
     version: startupAudit?.payload?.version || inputSchema?.payload?.version || bracketPlan?.payload?.version || null,
     schema: startupAudit?.payload?.schema ? Number(startupAudit.payload.schema) : inputSchema?.payload?.schema ? Number(inputSchema.payload.schema) : null,
     quantity: bracketPlan?.payload?.qty ? Number(bracketPlan.payload.qty) : startupAudit?.payload?.qty ? Number(startupAudit.payload.qty) : inputSchema?.payload?.qty ? Number(inputSchema.payload.qty) : null,
     maxTradesPerDay: bracketPlan?.payload?.max_trades_per_day ? Number(bracketPlan.payload.max_trades_per_day) : startupAudit?.payload?.max_trades_per_day ? Number(startupAudit.payload.max_trades_per_day) : inputSchema?.payload?.max_trades_per_day ? Number(inputSchema.payload.max_trades_per_day) : null,
-    tpSplit: bracketQty1 != null && bracketQty2 != null && bracketQty3 != null ? `${bracketQty1}/${bracketQty2}/${bracketQty3}` : startupAudit?.payload?.tp_split || null,
+    tpSplit: completeFiveTargetSplit ? bracketQuantities.join("/") : bracketQty1 != null && bracketQty2 != null && bracketQty3 != null ? `${bracketQty1}/${bracketQty2}/${bracketQty3}` : startupAudit?.payload?.tp_split || null,
+    targetRs: completeFiveTargetRs ? bracketTargetRs.join("/") : null,
     tp1: bracketQty1 ?? (inputSchema?.payload?.tp1 ? Number(inputSchema.payload.tp1) : null),
     tp2: bracketQty2 ?? (inputSchema?.payload?.tp2 ? Number(inputSchema.payload.tp2) : null),
     tp3: bracketQty3 ?? (inputSchema?.payload?.tp3 ? Number(inputSchema.payload.tp3) : null),
+    tp4: bracketQty4,
+    tp5: bracketQty5,
+    maxRiskDollars: bracketPlan?.payload?.max_risk_dollars ? Number(bracketPlan.payload.max_risk_dollars) : startupAudit?.payload?.risk_cap ? Number(startupAudit.payload.risk_cap) : inputSchema?.payload?.risk_cap ? Number(inputSchema.payload.risk_cap) : null,
+    breakevenMode: bracketPlan?.payload?.breakeven_mode || null,
+    breakevenTriggerValue: bracketPlan?.payload?.breakeven_trigger_value ? Number(bracketPlan.payload.breakeven_trigger_value) : null,
+    breakevenOffsetPoints: bracketPlan?.payload?.breakeven_offset_points ? Number(bracketPlan.payload.breakeven_offset_points) : null,
+    targetStopRatchet: bracketPlan?.payload?.target_stop_ratchet || null,
+    targetStopRatchetHoldBars: bracketPlan?.payload?.target_stop_ratchet_hold_bars ? Number(bracketPlan.payload.target_stop_ratchet_hold_bars) : null,
+    targetStopRatchetVwapTrend: bracketPlan?.payload?.target_stop_ratchet_vwap_trend || null,
     confluenceMode: startupAudit?.payload?.confluence_mode ? Number(startupAudit.payload.confluence_mode) : inputSchema?.payload?.confluence_mode ? Number(inputSchema.payload.confluence_mode) : null,
     hermesTpAdaptation: startupAudit?.payload?.hermes_tp_adaptation || inputSchema?.payload?.hermes_tp_adaptation || null,
     tickSize: startupAudit?.payload?.tick_size ? Number(startupAudit.payload.tick_size) : null,
@@ -969,6 +990,16 @@ export function verifyReplayStudySettings(actualSettings, expectedSettings = {})
     tp1: compareExpectedSetting(actualSettings?.tp1, expectedSettings.tp1),
     tp2: compareExpectedSetting(actualSettings?.tp2, expectedSettings.tp2),
     tp3: compareExpectedSetting(actualSettings?.tp3, expectedSettings.tp3),
+    tp4: compareExpectedSetting(actualSettings?.tp4, expectedSettings.tp4),
+    tp5: compareExpectedSetting(actualSettings?.tp5, expectedSettings.tp5),
+    maxRiskDollars: compareExpectedSetting(actualSettings?.maxRiskDollars, expectedSettings.maxRiskDollars),
+    targetRs: compareExpectedSetting(actualSettings?.targetRs, expectedSettings.targetRs),
+    breakevenMode: compareExpectedSetting(actualSettings?.breakevenMode, expectedSettings.breakevenMode),
+    breakevenTriggerValue: compareExpectedSetting(actualSettings?.breakevenTriggerValue, expectedSettings.breakevenTriggerValue),
+    breakevenOffsetPoints: compareExpectedSetting(actualSettings?.breakevenOffsetPoints, expectedSettings.breakevenOffsetPoints),
+    targetStopRatchet: compareExpectedSetting(actualSettings?.targetStopRatchet, expectedSettings.targetStopRatchet),
+    targetStopRatchetHoldBars: compareExpectedSetting(actualSettings?.targetStopRatchetHoldBars, expectedSettings.targetStopRatchetHoldBars),
+    targetStopRatchetVwapTrend: compareExpectedSetting(actualSettings?.targetStopRatchetVwapTrend, expectedSettings.targetStopRatchetVwapTrend),
     confluenceMode: compareExpectedSetting(actualSettings?.confluenceMode, expectedSettings.confluenceMode),
     hermesTpAdaptation: compareExpectedSetting(actualSettings?.hermesTpAdaptation, expectedSettings.hermesTpAdaptation),
   };
@@ -1079,33 +1110,28 @@ function makeReplayTradeFromBracketEvent(event, profileByBarIndex, sourceFile, d
   const risk = Math.abs(Number(event.payload.entry) - Number(event.payload.stop));
   const targets = [];
   const qty = Number(event.payload.qty || 0);
-  const qty2 = Number(event.payload.qty2 || 0);
-  const qty3 = Number(event.payload.qty3 || 0);
-  const qty1 = Math.max(0, qty - qty2 - qty3);
   const entry = roundNumber(event.payload.entry);
   const stop = roundNumber(event.payload.stop);
-  const totalContracts = qty1 + qty2 + qty3;
-  if (qty1 > 0 && event.payload.target1) {
-    targets.push({
-      contracts: qty1,
-      price: roundNumber(event.payload.target1),
-      r: event.payload.target1_r ? roundNumber(event.payload.target1_r) : risk ? roundNumber(Math.abs(Number(event.payload.target1) - entry) / risk) : null,
-    });
+  const explicitQuantities = [1, 2, 3, 4, 5].map((slot) =>
+    event.payload[`qty${slot}`] != null ? Number(event.payload[`qty${slot}`]) : null
+  );
+  if (explicitQuantities[0] == null) {
+    const laterSlots = explicitQuantities.slice(1).reduce((total, value) => total + Number(value || 0), 0);
+    explicitQuantities[0] = Math.max(0, qty - laterSlots);
   }
-  if (qty2 > 0 && event.payload.target2) {
-    targets.push({
-      contracts: qty2,
-      price: roundNumber(event.payload.target2),
-      r: event.payload.target2_r ? roundNumber(event.payload.target2_r) : risk ? roundNumber(Math.abs(Number(event.payload.target2) - entry) / risk) : null,
-    });
+  const quantities = explicitQuantities.map((value) => Number(value || 0));
+  for (const slot of [1, 2, 3, 4, 5]) {
+    const contracts = quantities[slot - 1];
+    const price = event.payload[`target${slot}`];
+    if (contracts > 0 && price) {
+      targets.push({
+        contracts,
+        price: roundNumber(price),
+        r: event.payload[`target${slot}_r`] ? roundNumber(event.payload[`target${slot}_r`]) : risk ? roundNumber(Math.abs(Number(price) - entry) / risk) : null,
+      });
+    }
   }
-  if (qty3 > 0 && event.payload.target3) {
-    targets.push({
-      contracts: qty3,
-      price: roundNumber(event.payload.target3),
-      r: event.payload.target3_r ? roundNumber(event.payload.target3_r) : risk ? roundNumber(Math.abs(Number(event.payload.target3) - entry) / risk) : null,
-    });
-  }
+  const totalContracts = quantities.reduce((total, value) => total + value, 0);
   const entryKey = londonEntryKey(event.payload.bar_time);
   const direction = event.payload.direction;
   const key = `${entryKey}|${direction}|${entry}`;
@@ -1136,6 +1162,9 @@ function makeReplayTradeFromBracketEvent(event, profileByBarIndex, sourceFile, d
       barTime: event.payload.bar_time || null,
       sourceMessage: event.message,
       chart: event.chart || null,
+      targetStopRatchet: event.payload.target_stop_ratchet || null,
+      targetStopRatchetHoldBars: event.payload.target_stop_ratchet_hold_bars ? Number(event.payload.target_stop_ratchet_hold_bars) : null,
+      targetStopRatchetVwapTrend: event.payload.target_stop_ratchet_vwap_trend || null,
     },
     execution: {
       entryIntentSeen: false,
