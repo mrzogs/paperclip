@@ -1,4 +1,55 @@
 {
+  "vwap_wave_pullback_split_be": {
+    "label": "VWAP Wave Pullback 3 micro split targets with BE+1",
+    "expectedStudy": "VWAP Wave Pullback",
+    "expectedStudySettings": {
+      "version": "v0.2.0-risk-split-be",
+      "quantity": 3,
+      "maxRiskDollars": 250,
+      "useMaxRiskGate": "yes",
+      "useOptimizedRiskSplitDefaults": "yes",
+      "targetSplit": "1/1/1",
+      "targetRs": "1.0/1.5/2.0",
+      "breakevenMode": "atr",
+      "breakevenTriggerValue": 2.0,
+      "breakevenOffsetPoints": 1.0,
+      "pullbackTouchToleranceTicks": 0,
+      "replaySignalDiagnostics": "yes"
+    },
+    "controllerInputs": {
+      "studyName": "VWAP Wave Pullback Replay Parity",
+      "intInputs": {
+        "0": 3,
+        "1": 1,
+        "2": 0,
+        "3": 3,
+        "4": 14,
+        "8": 0,
+        "11": 1,
+        "15": 1,
+        "16": 1,
+        "17": 0,
+        "18": 1,
+        "22": 1,
+        "23": 1,
+        "24": 1,
+        "25": 1,
+        "26": 2
+      },
+      "floatInputs": {
+        "5": 2.0,
+        "6": 2.25,
+        "7": 2.0,
+        "13": 250,
+        "14": 2.0,
+        "19": 1.0,
+        "20": 1.5,
+        "21": 2.0,
+        "27": 2.0,
+        "28": 1.0
+      }
+    }
+  },
   "vwap_wave_pullback_clean": {
     "label": "VWAP Wave Pullback clean replay parity profile",
     "expectedStudy": "VWAP Wave Pullback",
