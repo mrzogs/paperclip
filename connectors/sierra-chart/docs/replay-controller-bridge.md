@@ -1,6 +1,6 @@
 # Sierra Replay Controller Bridge
 
-Status: feature branch scaffold, replay controller v0.1.10 compiled for replay instance on 2026-05-27.
+Status: feature branch scaffold, replay controller v0.1.11 compiled for replay instance on 2026-05-27.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ Sierra Chart.
 2. Open the replay chartbook:
    `D:\Trading\SierraChart-Replay\Data\OceanTrading-PaperTrading.cht`
 3. Add custom study:
-   `Ocean Trading Replay Controller v0.1.10`
+   `Ocean Trading Replay Controller v0.1.11`
 4. Confirm the study input:
    `Enable Replay Controller = Yes`
 5. Leave command/status path inputs blank unless a different replay-root child
@@ -96,6 +96,8 @@ node D:\paperclip-codex\connectors\sierra-chart\src\replay-orchestration.mjs ^
 - v0.1.10 waits for Sierra to report chart data loading complete before calling
   `StartChartReplayNew`, because Sierra can otherwise accept the call without
   actually entering replay mode.
+- v0.1.11 treats Sierra `REPLAY_PAUSED = 2` as a blocked start state, resumes
+  paused launches, and only acknowledges active `REPLAY_RUNNING = 1`.
 - End-to-end replay control still requires the replay chartbook to be open and
   the controller study loaded/enabled. Until a fresh `replay-status.json`
   appears after a status command, the bridge has not completed its in-Sierra

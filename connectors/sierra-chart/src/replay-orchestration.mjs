@@ -422,8 +422,54 @@ function targetRs(targetPlan) {
 
 function entryKeyFromDateTimeText(value) {
   const text = String(value || "").trim();
-  const match = text.match(/^(?<date>\d{4}-\d{2}-\d{2})[T\s](?<time>\d{2}:\d{2})/);
-  return match?.groups ? `${match.groups.date}T${match.groups.time}` : null;
+  const match = text.match(/^(?<date>\d{4}[-/]\d{2}[-/]\d{2})[T\s](?<time>\d{2}:\d{2})/);
+  return match?.groups ? `${match.groups.date.replaceAll("/", "-")}T${match.groups.time}` : null;
+}
+
+function entryKeyFromDateAndTime(date, time) {
+  if (!date || !time) return null;
+  return entryKeyFromDateTimeText(`${date} ${time}`);
+}
+
+function entryKeyForTrade(trade) {
+  return trade.entryKey ||
+    entryKeyFromDateTimeText(trade.entryTime || trade.entryDateTime || trade.barTime) ||
+    entryKeyFromDateAndTime(trade.entry_date_london, trade.entry_time_london);
+}
+
+function exitKeyForTrade(trade) {
+  return trade.exitKey ||
+    entryKeyFromDateTimeText(trade.exitTime || trade.exitDateTime) ||
+    entryKeyFromDateAndTime(trade.exit_date_london, trade.exit_time_london);
+}
+
+function normalizeDirection(direction) {
+  const normalized = String(direction || "").trim().toLowerCase();
+  if (normalized.startsWith("long") || normalized === "buy") return "long";
+  if (normalized.startsWith("short") || normalized === "sell") return "short";
+  return normalized || null;
+}
+
+function normalizeExitReason(reason) {
+  const normalized = String(reason || "").trim().toLowerCase();
+  if (normalized === "target") return "targets";
+  if (normalized === "stopped") return "stop";
+  return normalized || null;
+}
+
+function singleTargetFromBacktestTrade(trade) {
+  const price = trade.target ?? trade.target_price;
+  if (price == null) return null;
+  const contracts = Number(trade.contracts || trade.quantity || 1);
+  const entry = Number(trade.entry ?? trade.entry_price);
+  const stop = Number(trade.initialStop ?? trade.stop);
+  const risk = Math.abs(entry - stop);
+  const r = risk > 0 ? Math.abs(Number(price) - entry) / risk : null;
+  return {
+    contracts,
+    price: Number(price),
+    r: r == null ? null : roundNumber(r),
+  };
 }
 
 function filterTradesByEntryRange(trades, startDateTime, endDateTime) {
@@ -431,7 +477,7 @@ function filterTradesByEntryRange(trades, startDateTime, endDateTime) {
   const endKey = entryKeyFromDateTimeText(endDateTime);
   if (!startKey && !endKey) return trades;
   return trades.filter((trade) => {
-    const entryKey = trade.entryKey || entryKeyFromDateTimeText(trade.entryTime || trade.entryDateTime || trade.barTime);
+    const entryKey = entryKeyForTrade(trade);
     if (!entryKey) return true;
     if (startKey && entryKey < startKey) return false;
     if (endKey && entryKey > endKey) return false;
@@ -444,9 +490,9 @@ function findReplayWindowViolations(trades, startDateTime, endDateTime) {
   const endKey = entryKeyFromDateTimeText(endDateTime);
   if (!startKey && !endKey) return [];
   return trades.flatMap((trade) => {
-    const entryKey = trade.entryKey || entryKeyFromDateTimeText(trade.entryTime || trade.entryDateTime || trade.barTime);
-    const exitKey = trade.outcome?.exitKey || trade.exitKey || null;
-    const direction = trade.direction || null;
+    const entryKey = entryKeyForTrade(trade);
+    const exitKey = trade.outcome?.exitKey || exitKeyForTrade(trade) || null;
+    const direction = normalizeDirection(trade.direction);
     const violations = [];
     if (startKey && entryKey && entryKey < startKey) {
       violations.push({ type: "entry_before_window", entryKey, exitKey, direction });
@@ -510,7 +556,7 @@ function normalizeReplayEvent(event) {
   return {
     source: event.source || "replay",
     entryKey: event.entryKey,
-    direction: event.direction,
+    direction: normalizeDirection(event.direction),
     entry: roundNumber(event.entry),
     initialStop: roundNumber(event.initialStop),
     stopAtExit: roundNumber(event.stopAtExit),
@@ -521,7 +567,7 @@ function normalizeReplayEvent(event) {
     hermesAction: event.hermesAction || null,
     outcome: {
       exitKey: event.outcome?.exitKey || null,
-      exitReason: event.outcome?.exitReason || null,
+      exitReason: normalizeExitReason(event.outcome?.exitReason),
       pnl: roundNumber(event.outcome?.pnl),
     },
     context: event.context || {},
@@ -530,12 +576,13 @@ function normalizeReplayEvent(event) {
 }
 
 function normalizeBacktestTrade(trade) {
-  const plan = normalizeTargetPlan(trade.targets || trade.targetPlan);
+  const singleTarget = singleTargetFromBacktestTrade(trade);
+  const plan = normalizeTargetPlan(trade.targets || trade.targetPlan || (singleTarget ? [singleTarget] : []));
   return {
     source: "backtest",
-    entryKey: trade.entryKey,
-    direction: trade.direction,
-    entry: roundNumber(trade.entry),
+    entryKey: entryKeyForTrade(trade),
+    direction: normalizeDirection(trade.direction),
+    entry: roundNumber(trade.entry ?? trade.entry_price),
     initialStop: roundNumber(trade.initialStop ?? trade.stop),
     stopAtExit: roundNumber(trade.stopAtExit ?? trade.stop),
     targetPlan: plan,
@@ -544,8 +591,8 @@ function normalizeBacktestTrade(trade) {
     hermesProfile: trade.hermesProfile || null,
     hermesAction: trade.hermesAction || null,
     outcome: {
-      exitKey: trade.exitKey || null,
-      exitReason: trade.exitReason || null,
+      exitKey: exitKeyForTrade(trade),
+      exitReason: normalizeExitReason(trade.exitReason ?? trade.exit_reason),
       pnl: roundNumber(trade.pnl),
     },
     context: {
@@ -890,13 +937,13 @@ export function extractReplayStudySettings(messageEvents = []) {
   const startupAudit = messageEvents.filter((event) => event.type === "startup_audit").at(-1) || null;
   const inputSchema = messageEvents.filter((event) => event.type === "input_schema_applied").at(-1) || null;
   const bracketPlan = messageEvents.filter((event) => event.type === "bracket_plan").at(-1) || null;
-  if (!startupAudit && !inputSchema) return null;
+  if (!startupAudit && !inputSchema && !bracketPlan) return null;
   const bracketQty1 = bracketPlan?.payload?.qty1 != null ? Number(bracketPlan.payload.qty1) : null;
   const bracketQty2 = bracketPlan?.payload?.qty2 != null ? Number(bracketPlan.payload.qty2) : null;
   const bracketQty3 = bracketPlan?.payload?.qty3 != null ? Number(bracketPlan.payload.qty3) : null;
   return {
     study: startupAudit?.study || inputSchema?.study || null,
-    version: startupAudit?.payload?.version || inputSchema?.payload?.version || null,
+    version: startupAudit?.payload?.version || inputSchema?.payload?.version || bracketPlan?.payload?.version || null,
     schema: startupAudit?.payload?.schema ? Number(startupAudit.payload.schema) : inputSchema?.payload?.schema ? Number(inputSchema.payload.schema) : null,
     quantity: bracketPlan?.payload?.qty ? Number(bracketPlan.payload.qty) : startupAudit?.payload?.qty ? Number(startupAudit.payload.qty) : inputSchema?.payload?.qty ? Number(inputSchema.payload.qty) : null,
     maxTradesPerDay: bracketPlan?.payload?.max_trades_per_day ? Number(bracketPlan.payload.max_trades_per_day) : startupAudit?.payload?.max_trades_per_day ? Number(startupAudit.payload.max_trades_per_day) : inputSchema?.payload?.max_trades_per_day ? Number(inputSchema.payload.max_trades_per_day) : null,
@@ -908,7 +955,7 @@ export function extractReplayStudySettings(messageEvents = []) {
     hermesTpAdaptation: startupAudit?.payload?.hermes_tp_adaptation || inputSchema?.payload?.hermes_tp_adaptation || null,
     tickSize: startupAudit?.payload?.tick_size ? Number(startupAudit.payload.tick_size) : null,
     symbol: startupAudit?.payload?.symbol || null,
-    chart: startupAudit?.payload?.chart || null,
+    chart: startupAudit?.payload?.chart || bracketPlan?.chart || null,
   };
 }
 
@@ -1621,6 +1668,12 @@ export function validateReplayControllerStatus(status, expected = {}) {
   if (expected.action === "start" && actual.isReplayRunning === false) {
     mismatches.push({ field: "isReplayRunning", expected: true, actual: false });
   }
+  if (
+    expected.action === "start" &&
+    (Number(actual.chartReplayStatus) === 2 || Number(actual.replayStatus) === 2)
+  ) {
+    mismatches.push({ field: "replayStatus", expected: "running", actual: "paused" });
+  }
   if (actual.error) {
     mismatches.push({ field: "error", expected: null, actual: actual.error });
   }
@@ -1710,6 +1763,20 @@ export function diagnoseReplayControllerReadiness(options = {}) {
     };
   }
 
+  if (
+    String(status.action || "").toLowerCase() === "start" &&
+    (Number(status.chartReplayStatus) === 2 || Number(status.replayStatus) === 2)
+  ) {
+    return {
+      status: "blocked",
+      reason: "replay_paused_after_start",
+      detail: "The replay controller has a start acknowledgement, but Sierra reports REPLAY_PAUSED; resume or restart before accepting replay results.",
+      runningProcessCount: runningProcesses.length,
+      controllerStatus: status,
+      freshness,
+    };
+  }
+
   return {
     status: "ready",
     reason: "controller_status_current",
@@ -1744,6 +1811,7 @@ export function openReplayChartbookViaUi(options = {}) {
     instance.root,
     "-ChartbookName",
     chartbookName,
+    "-MoveWindow",
   ];
   const output = execFileSync("powershell", args, { encoding: "utf8", windowsHide: false, timeout: options.timeoutMs || 60000 });
   return {

@@ -1,4 +1,40 @@
 {
+  "vwap_wave_pullback_clean": {
+    "label": "VWAP Wave Pullback clean replay parity profile",
+    "expectedStudy": "VWAP Wave Pullback",
+    "expectedStudySettings": {
+      "version": "v0.1.0-replay-parity",
+      "quantity": 2,
+      "maxRiskDollars": 250,
+      "useMaxRiskGate": "yes",
+      "useBacktestProfileDefaults": "yes",
+      "pullbackTouchToleranceTicks": 2,
+      "replaySignalDiagnostics": "yes"
+    },
+    "controllerInputs": {
+      "studyName": "VWAP Wave Pullback Replay Parity",
+      "intInputs": {
+        "0": 2,
+        "1": 1,
+        "2": 0,
+        "3": 3,
+        "4": 14,
+        "8": 0,
+        "11": 1,
+        "15": 1,
+        "16": 1,
+        "17": 2,
+        "18": 1
+      },
+      "floatInputs": {
+        "5": 1.0,
+        "6": 3.5,
+        "7": 2.0,
+        "13": 250,
+        "14": 2.0
+      }
+    }
+  },
   "v219_replay_alignment": {
     "label": "v2.1.9 replay alignment baseline",
     "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",

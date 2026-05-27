@@ -274,6 +274,32 @@ test("includes candidate replay study input overrides in controller commands", (
   assert.equal(command.studyInputOverrides.floatInputs["23"], 0.35);
 });
 
+test("includes VWAP Wave Pullback replay study input overrides in controller commands", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sierra-replay-controller-"));
+  const command = normalizeReplayControllerCommand({
+    action: "start",
+    requestedStartDateTime: "2026-04-06 00:00:00",
+    requestedEndDateTime: "2026-04-07 03:00:00",
+    speed: "480X",
+    studyPreset: "vwap_wave_pullback_clean",
+    config: {
+      paper: { root: path.join(root, "paper"), symbol: "MNQM26_FUT_CME[M]" },
+      replay: { root, symbol: "MNQM26_FUT_CME[M]", chartbook: path.join(root, "Data", "OceanTrading-PaperTrading.cht") },
+      live: { root: path.join(root, "live") },
+    },
+  });
+
+  assert.equal(command.expectedStudy, "VWAP Wave Pullback");
+  assert.equal(command.studyPreset, "vwap_wave_pullback_clean");
+  assert.equal(command.studyInputOverrides.studyName, "VWAP Wave Pullback Replay Parity");
+  assert.equal(command.studyInputOverrides.intInputs["0"], 2);
+  assert.equal(command.studyInputOverrides.intInputs["15"], 1);
+  assert.equal(command.studyInputOverrides.intInputs["16"], 1);
+  assert.equal(command.studyInputOverrides.intInputs["17"], 2);
+  assert.equal(command.studyInputOverrides.intInputs["18"], 1);
+  assert.equal(command.studyInputOverrides.floatInputs["13"], 250);
+});
+
 test("writes replay controller commands only under the replay root", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sierra-replay-controller-"));
   const config = {
@@ -448,6 +474,49 @@ test("rejects start acknowledgements when Sierra is not actually replaying", () 
   assert.equal(readiness.reason, "replay_not_running_after_start");
 });
 
+test("rejects start acknowledgements when Sierra is paused after launch", () => {
+  const status = {
+    paths: {},
+    status: {
+      commandId: "cmd-paused",
+      action: "start",
+      status: "replay_running",
+      requestedStartDateTime: "2026-04-06 00:00:00",
+      currentChartDateTime: "1899-12-30 00:00:00",
+      replaySpeed: "480X",
+      isReplayRunning: true,
+      replayStatus: 2,
+      chartReplayStatus: 2,
+      error: null,
+    },
+    freshness: {
+      statusIsOlderThanCommand: false,
+      statusIsTooOld: false,
+    },
+  };
+  const verification = validateReplayControllerStatus(status, {
+    commandId: "cmd-paused",
+    action: "start",
+    startDateTime: "2026-04-06 00:00:00",
+    replaySpeed: "480X",
+  });
+  assert.equal(verification.status, "mismatch");
+  assert.equal(verification.mismatches.some((item) => item.field === "replayStatus"), true);
+
+  const readiness = diagnoseReplayControllerReadiness({
+    mode: "replay",
+    config: {
+      paper: { root: path.join(os.tmpdir(), "paper") },
+      replay: { root: path.join(os.tmpdir(), "replay") },
+      live: { root: path.join(os.tmpdir(), "live") },
+    },
+    runningProcesses: [{ mode: "replay", Path: "D:\\Trading\\SierraChart-Replay\\SierraChart_64.exe" }],
+    controllerStatus: status,
+  });
+  assert.equal(readiness.status, "blocked");
+  assert.equal(readiness.reason, "replay_paused_after_start");
+});
+
 test("builds a replay run request that fails closed on effective start mismatch", () => {
   const request = buildReplayRunRequest({
     mode: "replay",
@@ -477,6 +546,17 @@ test("builds replay trade rows from bracket-plan logs", () => {
   assert.equal(trades[0].entryKey, "2026-05-24T16:30");
   assert.equal(trades[0].targetSplit, "2/3");
   assert.equal(trades[0].hermesProfile, "Dynamic Profile Map: Bull Continuation");
+});
+
+test("extracts replay study settings from bracket-plan diagnostics", () => {
+  const events = parseReplayMessageLogText([
+    "2026-05-27  19:01:56.997 | Chart: Replay 480X: MNQM26_FUT_CME[M]  5 Min  #1 | Study: VWAP Wave Pullback Replay Parity v0.1.0 | VWAP Wave Pullback long bracket plan: session_profile=all_sessions hermes_profile=wave_pullback_clean hermes_action=single_target_2r qty=2 bar_index=21375 bar_time=2026-04-06 23:50:00 entry=24318.75 stop=24257.05 risk=61.70 planned_risk=246.82 tick_size=0.2500 atr=17.8440 vwap=24301.3730 target1_r=2.00 target1=24444.41 qty2=0 target2=0.00 qty3=0 target3=0.00 schema=1 version=v0.1.0-replay-parity",
+  ].join("\n"));
+  const settings = extractReplayStudySettings(events);
+
+  assert.equal(settings.version, "v0.1.0-replay-parity");
+  assert.equal(settings.quantity, 2);
+  assert.equal(settings.chart.includes("Replay 480X"), true);
 });
 
 test("links Sierra market fills to the unique planned trade even when entry slips by more than a tick", () => {

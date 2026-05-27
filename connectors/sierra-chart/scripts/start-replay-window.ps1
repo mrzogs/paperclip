@@ -185,6 +185,7 @@ function Find-VisibleDialogs {
 }
 
 function Click-DialogButtonByText([IntPtr]$dialog, [string[]]$texts) {
+  Move-DialogOntoReplayScreen $dialog
   $controls = Get-ChildControls $dialog
   foreach ($text in $texts) {
     $button = $controls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq $text } | Select-Object -First 1
@@ -201,6 +202,26 @@ function Click-DialogButtonByText([IntPtr]$dialog, [string[]]$texts) {
   return $false
 }
 
+function Move-DialogOntoReplayScreen([IntPtr]$dialog) {
+  if ($dialog -eq [IntPtr]::Zero) {
+    return
+  }
+  $mainRect = Get-WindowRectValue $process.MainWindowHandle
+  $dialogRect = Get-WindowRectValue $dialog
+  $targetX = $mainRect.Left + [Math]::Max(20, [int](($mainRect.Width - $dialogRect.Width) / 2))
+  $targetY = $mainRect.Top + [Math]::Max(80, [int](($mainRect.Height - $dialogRect.Height) / 3))
+  $outsideReplayWindow =
+    $dialogRect.Left -lt $mainRect.Left -or
+    $dialogRect.Top -lt $mainRect.Top -or
+    $dialogRect.Right -gt $mainRect.Right -or
+    $dialogRect.Bottom -gt $mainRect.Bottom
+  if ($outsideReplayWindow) {
+    [SierraReplayWindowUi]::MoveWindow($dialog, $targetX, $targetY, $dialogRect.Width, $dialogRect.Height, $true) | Out-Null
+    Write-Output "Moved Sierra replay dialog onto expected replay screen: x=$targetX y=$targetY"
+    Start-Sleep -Milliseconds 250
+  }
+}
+
 function Accept-ReplayPrompts([IntPtr]$replayDialog) {
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {
@@ -210,6 +231,7 @@ function Accept-ReplayPrompts([IntPtr]$replayDialog) {
       if ($dialogInfo.Hwnd -eq $replayDialog) { continue }
       $text = $dialogInfo.Text
       if ($text -match "Sierra|Replay|Chart|Confirm|Notice|Message|Trade|Processing|Step|Seconds|Clear Trade Data|Enter Processing Step") {
+        Move-DialogOntoReplayScreen $dialogInfo.Hwnd
         [SierraReplayWindowUi]::SetForegroundWindow($dialogInfo.Hwnd) | Out-Null
         Start-Sleep -Milliseconds 150
         if (Click-DialogButtonByText $dialogInfo.Hwnd @("Yes", "OK", "Continue")) {
@@ -245,19 +267,74 @@ function Close-ReplayDialog([IntPtr]$dialogToClose) {
   Start-Sleep -Milliseconds 750
 }
 
+function Get-ReplayPausedTitle {
+  $mainTitle = Get-WindowTextValue $process.MainWindowHandle
+  if ($mainTitle -match "\bPaused\b") {
+    return $mainTitle
+  }
+
+  $pausedTitles = New-Object System.Collections.ArrayList
+  $callback = [SierraReplayWindowUi+EnumWindowsProc]{
+    param([IntPtr]$hWnd, [IntPtr]$lParam)
+    if (-not [SierraReplayWindowUi]::IsWindowVisible($hWnd)) { return $true }
+    $title = Get-WindowTextValue $hWnd
+    if ($title -match "\bPaused\s+\d+X:" -and $title -match "MNQM26_FUT_CME") {
+      [void]$pausedTitles.Add($title)
+    }
+    return $true
+  }
+  [SierraReplayWindowUi]::EnumChildWindows($process.MainWindowHandle, $callback, [IntPtr]::Zero) | Out-Null
+  if ($pausedTitles.Count -gt 0) {
+    return [string]$pausedTitles[0]
+  }
+
+  return $null
+}
+
 function Resume-IfPaused {
   for ($attempt = 1; $attempt -le 4; $attempt++) {
-    $title = Get-WindowTextValue $process.MainWindowHandle
-    if ($title -notmatch "Paused") {
+    $pausedTitle = Get-ReplayPausedTitle
+    if (-not $pausedTitle) {
       return
     }
+    $replayDialog = Find-ReplayDialog
+    if ($replayDialog -ne [IntPtr]::Zero) {
+      Move-DialogOntoReplayScreen $replayDialog
+      [SierraReplayWindowUi]::SetForegroundWindow($replayDialog) | Out-Null
+      Start-Sleep -Milliseconds 200
+      $dialogControls = Get-ChildControls $replayDialog
+      $dialogPlay = $dialogControls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Play" } | Select-Object -First 1
+      $dialogStop = $dialogControls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Stop" } | Select-Object -First 1
+      if ($dialogPlay) {
+        Click-At ($dialogPlay.X + [int]($dialogPlay.W / 2)) ($dialogPlay.Y + [int]($dialogPlay.H / 2))
+        Start-Sleep -Seconds 2
+        if (-not (Get-ReplayPausedTitle)) {
+          return
+        }
+      }
+      if ($dialogStop -and $dialogPlay) {
+        Click-At ($dialogStop.X + [int]($dialogStop.W / 2)) ($dialogStop.Y + [int]($dialogStop.H / 2))
+        Start-Sleep -Seconds 1
+        $dialogControls = Get-ChildControls $replayDialog
+        $dialogPlay = $dialogControls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Play" } | Select-Object -First 1
+        if ($dialogPlay) {
+          Click-At ($dialogPlay.X + [int]($dialogPlay.W / 2)) ($dialogPlay.Y + [int]($dialogPlay.H / 2))
+          Start-Sleep -Milliseconds 750
+          Accept-ReplayPrompts $replayDialog
+          Start-Sleep -Seconds 2
+          if (-not (Get-ReplayPausedTitle)) {
+            return
+          }
+        }
+      }
+    }
+    $mainRect = Get-WindowRectValue $process.MainWindowHandle
     [SierraReplayWindowUi]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
     Start-Sleep -Milliseconds 200
-    Click-At ($WindowX + 1475) ($WindowY + 69)
+    Click-At ($mainRect.Left + 1475) ($mainRect.Top + 69)
     Start-Sleep -Seconds 2
   }
-  $title = Get-WindowTextValue $process.MainWindowHandle
-  if ($title -match "Paused") {
+  if (Get-ReplayPausedTitle) {
     throw "Replay remained paused after clicking the Replay Pause toolbar button."
   }
 }
@@ -268,12 +345,15 @@ Add-Type -AssemblyName System.Windows.Forms
 [SierraReplayWindowUi]::MoveWindow($process.MainWindowHandle, $WindowX, $WindowY, $WindowWidth, $WindowHeight, $true) | Out-Null
 [SierraReplayWindowUi]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 750
+$mainWindowRect = Get-WindowRectValue $process.MainWindowHandle
+$BaseX = $mainWindowRect.Left
+$BaseY = $mainWindowRect.Top
 
 $existingDialog = Find-ReplayDialog
 Close-ReplayDialog $existingDialog
 
 # Coordinates are calibrated against the normalized replay Sierra window above.
-Click-At ($WindowX + 1507) ($WindowY + 70)  # Replay Chart toolbar button.
+Click-At ($BaseX + 1507) ($BaseY + 70)  # Replay Chart toolbar button.
 Start-Sleep -Milliseconds 750
 
 $dateText = $match.Groups["date"].Value.Replace("-", "/")
@@ -286,6 +366,7 @@ $dialog = Find-ReplayDialog
 if ($dialog -eq [IntPtr]::Zero) {
   throw "Replay Chart dialog not found after clicking Replay Chart."
 }
+Move-DialogOntoReplayScreen $dialog
 
 $controls = Get-ChildControls $dialog
 $pauseButton = $controls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Pause" } | Select-Object -First 1
@@ -317,9 +398,9 @@ $timeEdit = $edits | Select-Object -Skip 1 -First 1
 $speedEdit = $edits | Select-Object -Skip 2 -First 1
 
 if (-not $dateEdit -or -not $timeEdit -or -not $speedEdit) {
-  Type-Into ($WindowX + 556) ($WindowY + 322) $dateText
-  Type-Into ($WindowX + 690) ($WindowY + 322) $timeText
-  Type-Into ($WindowX + 575) ($WindowY + 368) $speedNumber
+  Type-Into ($BaseX + 556) ($BaseY + 322) $dateText
+  Type-Into ($BaseX + 690) ($BaseY + 322) $timeText
+  Type-Into ($BaseX + 575) ($BaseY + 368) $speedNumber
 } else {
   [SierraReplayWindowUi]::SetWindowText($dateEdit.Hwnd, $dateText) | Out-Null
   [SierraReplayWindowUi]::SetWindowText($timeEdit.Hwnd, $timeText) | Out-Null
@@ -345,13 +426,29 @@ $startPaused = $controls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq
 if ($startPaused) {
   $checked = [SierraReplayWindowUi]::SendMessage($startPaused.Hwnd, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
   if ($checked -ne 0) {
-    # Sierra's replay dialog does not always honor BM_SETCHECK here. Use the
-    # same physical checkbox path an operator would use and verify the state.
-    Click-At ($startPaused.X + 8) ($startPaused.Y + [int]($startPaused.H / 2))
+    [SierraReplayWindowUi]::SendMessage($startPaused.Hwnd, 0x00F1, [IntPtr]0, [IntPtr]::Zero) | Out-Null
     Start-Sleep -Milliseconds 150
     $checked = [SierraReplayWindowUi]::SendMessage($startPaused.Hwnd, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
-    if ($checked -ne 0) {
-      throw "Replay dialog Start Paused checkbox remained checked after click; refusing to start an unattended replay."
+    $attempt = 0
+    while ($checked -ne 0 -and $attempt -lt 3) {
+      # Sierra's replay dialog does not always honor BM_SETCHECK here. Use the
+      # same physical checkbox path an operator would use and verify the state.
+      Move-DialogOntoReplayScreen $dialog
+      [SierraReplayWindowUi]::SetForegroundWindow($dialog) | Out-Null
+      Start-Sleep -Milliseconds 120
+      $clickX = $startPaused.X + [Math]::Min(14, [Math]::Max(8, [int]($startPaused.W / 4)))
+      Click-At $clickX ($startPaused.Y + [int]($startPaused.H / 2))
+      Start-Sleep -Milliseconds 250
+      $controls = Get-ChildControls $dialog
+      $startPaused = $controls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Start Paused" } | Select-Object -First 1
+      if (-not $startPaused) {
+        break
+      }
+      $checked = [SierraReplayWindowUi]::SendMessage($startPaused.Hwnd, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+      $attempt += 1
+    }
+    if ($startPaused -and $checked -ne 0) {
+      throw "Replay dialog Start Paused checkbox remained checked after repeated clear attempts; refusing to start an unattended replay."
     }
   }
 }
@@ -372,14 +469,26 @@ if ($dateEdit -and $timeEdit -and $speedEdit) {
 }
 $playButton = $controls | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Play" } | Select-Object -First 1
 if ($playButton) {
-  Click-Control $playButton.Hwnd
+  Click-At ($playButton.X + [int]($playButton.W / 2)) ($playButton.Y + [int]($playButton.H / 2))
 } else {
-  Click-At ($WindowX + 719) ($WindowY + 365)  # Play fallback.
+  Click-At ($BaseX + 719) ($BaseY + 365)  # Play fallback.
 }
 Start-Sleep -Milliseconds 750
 Accept-ReplayPrompts $dialog
 Start-Sleep -Milliseconds 750
 Accept-ReplayPrompts $dialog
+Start-Sleep -Milliseconds 500
+$dialogAfterPrompts = Find-ReplayDialog
+if ($dialogAfterPrompts -ne [IntPtr]::Zero) {
+  Move-DialogOntoReplayScreen $dialogAfterPrompts
+  $controlsAfterPrompts = Get-ChildControls $dialogAfterPrompts
+  $playButtonAfterPrompts = $controlsAfterPrompts | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Play" } | Select-Object -First 1
+  if ($playButtonAfterPrompts) {
+    Click-At ($playButtonAfterPrompts.X + [int]($playButtonAfterPrompts.W / 2)) ($playButtonAfterPrompts.Y + [int]($playButtonAfterPrompts.H / 2))
+    Start-Sleep -Milliseconds 750
+    Accept-ReplayPrompts $dialogAfterPrompts
+  }
+}
 
 Close-ReplayDialog $dialog
 $currentDialog = Find-ReplayDialog

@@ -18,7 +18,7 @@ SCDLLName("Ocean Trading Replay Controller")
 
 namespace {
 
-const char* VERSION = "v0.1.10";
+const char* VERSION = "v0.1.11";
 const char* DEFAULT_COMMAND_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-command.json";
 const char* DEFAULT_STATUS_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-status.json";
 
@@ -370,6 +370,24 @@ SCDateTime ReplayAwareCurrentDateTime(SCStudyInterfaceRef sc)
     return empty;
 }
 
+int ReplayStatusForChart(SCStudyInterfaceRef sc, const int chartNumber)
+{
+    const int targetChartStatus = sc.GetReplayStatusFromChart(chartNumber);
+    if (targetChartStatus != REPLAY_STOPPED)
+        return targetChartStatus;
+    return sc.ReplayStatus;
+}
+
+bool ReplayIsActivelyRunning(SCStudyInterfaceRef sc, const int chartNumber)
+{
+    return ReplayStatusForChart(sc, chartNumber) == REPLAY_RUNNING;
+}
+
+bool ReplayIsPaused(SCStudyInterfaceRef sc, const int chartNumber)
+{
+    return ReplayStatusForChart(sc, chartNumber) == REPLAY_PAUSED;
+}
+
 bool ChartDataReadyForReplayStart(SCStudyInterfaceRef sc, const int chartNumber, std::string& detail)
 {
     const bool allChartsLoaded = sc.IsChartDataLoadingCompleteForAllCharts() != 0;
@@ -457,11 +475,11 @@ void WriteStatus(
     const std::string& detail = "")
 {
     SCDateTime currentDateTime = ReplayAwareCurrentDateTime(sc);
+    const int chartReplayStatus = sc.GetReplayStatusFromChart(sc.ChartNumber);
     const std::string effectiveStart =
-        action == "start" && !requestedStart.empty() && sc.IsReplayRunning()
+        action == "start" && !requestedStart.empty() && chartReplayStatus == REPLAY_RUNNING
             ? DateTimeToText(currentDateTime)
             : "";
-    const int chartReplayStatus = sc.GetReplayStatusFromChart(sc.ChartNumber);
     std::ostringstream json;
     json
         << "{\n"
@@ -605,8 +623,8 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
 
     if (sc.SetDefaults)
     {
-        sc.GraphName = "Ocean Trading Replay Controller v0.1.10";
-        sc.StudyDescription = "Replay-only command bridge for Ocean Trading Sierra connector. v0.1.10 waits for chart load completion before launching replay and verifies replay-running state.";
+        sc.GraphName = "Ocean Trading Replay Controller v0.1.11";
+        sc.StudyDescription = "Replay-only command bridge for Ocean Trading Sierra connector. v0.1.11 resumes paused starts before acknowledging replay-running state.";
         sc.AutoLoop = 0;
         sc.UpdateAlways = 1;
         sc.GraphRegion = 0;
@@ -729,7 +747,8 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
 
     if (resumeAfterStartPending && !launchedStartThisCall)
     {
-        if (sc.IsReplayRunning())
+        const int chartNumber = activeChartNumber > 0 ? activeChartNumber : sc.ChartNumber;
+        if (ReplayIsActivelyRunning(sc, chartNumber))
         {
             resumeAfterStartPending = 0;
             resumeAfterStartAttempts = 0;
@@ -743,23 +762,25 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
                 activeReplaySpeed.GetChars(),
                 "replay_running",
                 "",
-                "Replay entered running or paused state after launch request.");
+                "Replay entered active running state after launch request.");
         }
         else if (resumeAfterStartAttempts < 12)
         {
             ++resumeAfterStartAttempts;
-            sc.ResumeChartReplay(activeChartNumber > 0 ? activeChartNumber : sc.ChartNumber);
+            sc.ResumeChartReplay(chartNumber);
             WriteStatus(
                 sc,
                 statusPath,
                 activeCommandId.GetChars(),
-                "resume_after_start",
+                "start",
                 activeRequestedStart.GetChars(),
                 activeRequestedEnd.GetChars(),
                 activeReplaySpeed.GetChars(),
                 "resume_after_start_requested",
                 "",
-                "Replay launch was requested; delayed resume requested while waiting for Sierra to enter replay state.");
+                ReplayIsPaused(sc, chartNumber)
+                    ? "Replay launch entered paused state; delayed resume requested before accepting start."
+                    : "Replay launch was requested; delayed resume requested while waiting for Sierra to enter active replay state.");
         }
         else
         {
@@ -774,7 +795,7 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
                 activeRequestedEnd.GetChars(),
                 activeReplaySpeed.GetChars(),
                 "error",
-                "Replay did not enter running state after delayed resume attempts.",
+                "Replay did not enter active running state after delayed resume attempts.",
                 "");
         }
     }
