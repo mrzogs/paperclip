@@ -48,6 +48,7 @@ public class SierraReplayUi {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 }
 "@
 
@@ -56,6 +57,21 @@ function Click-At([int]$x, [int]$y) {
   Start-Sleep -Milliseconds 120
   [SierraReplayUi]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
   [SierraReplayUi]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Press-Key([byte]$virtualKey) {
+  [SierraReplayUi]::keybd_event($virtualKey, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [SierraReplayUi]::keybd_event($virtualKey, 0, 0x0002, [UIntPtr]::Zero)
+}
+
+function Press-CtrlV {
+  [SierraReplayUi]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [SierraReplayUi]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [SierraReplayUi]::keybd_event(0x56, 0, 0x0002, [UIntPtr]::Zero)
+  [SierraReplayUi]::keybd_event(0x11, 0, 0x0002, [UIntPtr]::Zero)
 }
 
 [SierraReplayUi]::ShowWindow($process.MainWindowHandle, 9) | Out-Null
@@ -70,8 +86,8 @@ Start-Sleep -Seconds 1
 Click-At ($WindowX + 785) ($WindowY + 698)  # File Name input in Open Chartbook dialog.
 
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait("^a")
-[System.Windows.Forms.SendKeys]::SendWait($ChartbookName)
-[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+[System.Windows.Forms.Clipboard]::SetText($ChartbookName)
+Press-CtrlV
+Press-Key 0x0D
 
 Write-Output "Requested replay chartbook open: $chartbookPath"

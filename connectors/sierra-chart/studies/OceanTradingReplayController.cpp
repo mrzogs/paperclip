@@ -324,7 +324,8 @@ bool ParseDateTime(const std::string& text, SCDateTime& output)
     int hour = 0;
     int minute = 0;
     int second = 0;
-    if (std::sscanf(text.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) != 6)
+    if (std::sscanf(text.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) != 6
+        && std::sscanf(text.c_str(), "%d/%d/%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) != 6)
         return false;
 
     output.SetDateTimeYMDHMS(year, month, day, hour, minute, second);

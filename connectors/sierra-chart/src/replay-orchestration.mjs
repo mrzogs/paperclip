@@ -248,17 +248,20 @@ function safeBasename(filePath) {
 
 function parseIsoLikeDateTime(value) {
   const text = String(value || "").trim();
-  const match = text.match(/^(?<date>\d{4}-\d{2}-\d{2})[T\s](?<time>\d{2}:\d{2}(?::\d{2})?)$/);
+  const match = text.match(/^(?<date>\d{4}[-/]\d{2}[-/]\d{2})[T\s](?<time>\d{2}:\d{2}(?::\d{2})?)$/);
   if (!match?.groups) {
-    throw new Error(`Expected date-time in YYYY-MM-DD HH:MM[:SS] format, received: ${value}`);
+    throw new Error(`Expected date-time in YYYY-MM-DD HH:MM[:SS] or YYYY/MM/DD HH:MM[:SS] format, received: ${value}`);
   }
-  if (match.groups.date === "1899-12-30") {
+  const normalizedDate = match.groups.date.replace(/\//g, "-");
+  if (normalizedDate === "1899-12-30") {
     throw new Error("Refusing Sierra blank replay start 1899-12-30. Set an explicit valid replay start date.");
   }
+  const time = match.groups.time.length === 5 ? `${match.groups.time}:00` : match.groups.time;
   return {
-    date: match.groups.date,
-    time: match.groups.time.length === 5 ? `${match.groups.time}:00` : match.groups.time,
-    text: `${match.groups.date} ${match.groups.time.length === 5 ? `${match.groups.time}:00` : match.groups.time}`,
+    date: normalizedDate,
+    time,
+    text: `${match.groups.date} ${time}`,
+    normalizedText: `${normalizedDate} ${time}`,
   };
 }
 
