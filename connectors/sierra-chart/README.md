@@ -1,6 +1,6 @@
 # Sierra Chart Connector Proposal
 
-Status: active scaffold. Runtime use has started with shared Sierra instance/path resolution for the Ocean Trading website monitor.
+Status: active connector. Runtime use has started with shared Sierra instance/path resolution for the Ocean Trading website monitor and replay-safe orchestration for VWAP Momentum Reclaim validation.
 
 This connector is intended to become the single Sierra Chart access point for Paperclip, Codex, Ocean Trading, and future agents.
 
@@ -41,6 +41,23 @@ connectors/sierra-chart/
 - `src/instance-registry.mjs`: resolves paper/replay/live Sierra roots, symbols, chartbooks, and log folders. The Ocean Trading website monitor imports this module instead of owning its own Sierra path defaults.
 - `src/replay-orchestration.mjs`: replay-safe validation helper that resolves replay environments, detects the correct Sierra process, documents the exact Sierra replay control surface, and normalizes replay logs into an exact closed-trade ledger.
 - `src/replay-orchestration.mjs` also emits connector-owned replay validation artifacts when given explicit replay message/trade logs plus a matching backtest JSON.
+- `scripts/open-replay-chartbook.ps1`: replay-only helper that starts/focuses the replay Sierra instance and opens the configured replay chartbook.
+- `scripts/start-replay-window.ps1`: replay-only UI helper that forces a requested Replay Chart start date/time and preset speed, validates Sierra's field readback, archives target-day replay trade logs when requested, clears persisted Start Paused, accepts Sierra start-blocking modals, and refuses live roots.
+- `studies/OceanTradingReplayController.cpp`: ACSIL bridge study for replay-only command/status handshakes through `connector-control`.
+
+## Current Capabilities
+
+- Resolve configured Sierra paper, replay, and live instances while blocking live by default.
+- Detect running Sierra processes and map them to their configured roots.
+- Open the replay chartbook through a replay-only helper.
+- Start a replay window through a replay-only UI helper using only Sierra's dropdown speed presets: `1X`, `2X`, `10X`, `60X`, `120X`, `240X`, `480X`, `960X`.
+- Validate requested/effective replay starts and reject Sierra's blank `1899-12-30` date.
+- Handle Sierra replay prompts that otherwise block unattended starts, including `Clear Trade Data` and `Enter Processing Step in Seconds`.
+- Archive replay `TradeActivityLog_*Sim1.simulated.data` files before rerunning a target day.
+- Write/read replay controller command and status JSON for start/stop/pause/resume/status handshakes.
+- Parse Sierra Message Log events for Hermes profile switches, startup/input-schema audits, bracket plans, order state, fills, position close, Lucid/CME guards, and order rejections.
+- Parse replay Trade Activity logs into normalized order intent/fill/closed-trade rows.
+- Generate replay-vs-backtest JSON/Markdown validation artifacts with P&L comparison, missing-trade detection, replay window checks, study-setting verification, and DLL hash metadata.
 
 ## Migration Principle
 
@@ -91,6 +108,23 @@ node connectors/sierra-chart/src/replay-orchestration.mjs ^
   --mode replay ^
   --controller-read-status
 ```
+
+- The replay controller status now carries `effectiveStartDateTime` on fresh `start` acknowledgements. If Sierra only exposes `currentChartDateTime`, the Node connector will still infer the effective start from that value for same-date targeted replay starts.
+- If Sierra opens the Replay Chart dialog but keeps a stale saved replay date, use the replay-only UI helper to force the visible dialog fields before pressing Play:
+
+```sh
+powershell -ExecutionPolicy Bypass -File connectors/sierra-chart/scripts/start-replay-window.ps1 ^
+  -StartDateTime "2026-05-01 00:00:00" ^
+  -Speed 480X
+```
+
+This helper is scoped to `D:\Trading\SierraChart-Replay`, accepts only Sierra's approved replay speed presets, and refuses live roots.
+It also handles the start-blocking Sierra prompts we found during replay testing:
+
+- `Clear Trade Data`
+- `Enter Processing Step in Seconds`
+
+If Sierra reports or exposes `1899-12-30` as the replay date, treat that as a blank/stale replay start and stop the run. The connector now rejects that value for replay run requests and flags it during controller status validation.
 
 - For targeted replay starts, pass the requested/effective start readback and the preset speed so the connector can fail closed on any mismatch:
 

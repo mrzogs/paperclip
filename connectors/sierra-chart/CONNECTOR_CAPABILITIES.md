@@ -1,6 +1,6 @@
 # Sierra Chart Connector Capabilities
 
-Status: active scaffold. The first runtime capability is instance/path resolution for the website monitor.
+Status: active connector. Runtime capabilities now cover instance/path resolution, replay-safe control planning, replay UI helpers, ACSIL replay-controller bridge commands/status, replay log parsing, and replay-vs-backtest validation artifacts.
 
 Every new Sierra Chart capability added to this connector must be documented here in the same change that adds it.
 
@@ -24,6 +24,7 @@ Every new Sierra Chart capability added to this connector must be documented her
 | `detect_running_instances` | Detect local `SierraChart_64.exe` processes and map them to paper/replay/live roots. | `connectors/sierra-chart/src/replay-orchestration.mjs` | Active |
 | `inspect_replay_logs` | Read Sierra replay Message Log and TradeActivityLog files and normalize Hermes profile, bracket-plan, and fill/order events. | `connectors/sierra-chart/src/replay-orchestration.mjs` | Active |
 | `plan_replay_controls` | Emit replay-safe launch/control metadata for Sierra replay lifecycle actions, including exact toolbar/window controls, approved replay speeds, requested/effective start validation, and live blocked by default. | `connectors/sierra-chart/src/replay-orchestration.mjs` | Active |
+| `start_replay_window_ui` | Replay-only PowerShell UI helper that opens Sierra's Replay Chart dialog, forces `Use Start Date-Time`, validates date/time/speed readback, rejects custom speeds, archives target-day trade logs when requested, clears persisted Start Paused, accepts Sierra's Clear Trade Data and Enter Processing Step prompts, resumes if paused, and refuses live roots. | `connectors/sierra-chart/scripts/start-replay-window.ps1` | Active |
 | `write_replay_controller_command` | Write replay-only command JSON for the ACSIL Replay Controller bridge under the replay root. Supports start/stop/pause/resume/status and rejects non-preset speeds. | `connectors/sierra-chart/src/replay-orchestration.mjs`; `connectors/sierra-chart/studies/OceanTradingReplayController.cpp` | Active scaffold |
 | `read_replay_controller_status` | Read and validate ACSIL Replay Controller status JSON so the connector can verify command id, action, requested start, speed, running state, and errors. | `connectors/sierra-chart/src/replay-orchestration.mjs`; `connectors/sierra-chart/studies/OceanTradingReplayController.cpp` | Active scaffold |
 | `prepare_replay_state` | Archive target-range replay `Sim1.simulated` trade logs under the replay root before targeted reruns. | `connectors/sierra-chart/src/replay-orchestration.mjs` | Active |
@@ -57,6 +58,8 @@ Every new Sierra Chart capability added to this connector must be documented her
 - Replay process detection must choose the instance whose executable path matches the replay root when that process exists.
 - Replay controller commands must only be written under `D:\Trading\SierraChart-Replay\connector-control` or an explicitly configured replay-root child directory.
 - Replay controller commands must reject custom speed values such as `5000`; only Sierra dropdown presets are allowed.
+- Replay run requests and controller validation must reject or flag Sierra's blank `1899-12-30` replay date; unattended replay validation cannot proceed from blank/stale starts.
+- The replay UI helper must automatically handle Sierra modal prompts that block start, including `Clear Trade Data` and `Enter Processing Step in Seconds`.
 - The ACSIL Replay Controller study must be loaded only on the replay instance and must remain disabled by default until an operator enables it for replay testing.
 - Replay message-log parsing must normalize Hermes profile switches and bracket plans into machine-readable events.
 - Replay validation artifact generation must work from explicit message/trade log file paths and compare normalized replay rows against a provided backtest artifact.

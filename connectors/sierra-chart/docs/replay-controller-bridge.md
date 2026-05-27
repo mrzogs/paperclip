@@ -1,6 +1,6 @@
 # Sierra Replay Controller Bridge
 
-Status: feature branch scaffold, compiled for replay instance on 2026-05-25.
+Status: feature branch scaffold, replay controller v0.1.10 compiled for replay instance on 2026-05-27.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ Sierra Chart.
 2. Open the replay chartbook:
    `D:\Trading\SierraChart-Replay\Data\OceanTrading-PaperTrading.cht`
 3. Add custom study:
-   `Ocean Trading Replay Controller v0.1.1`
+   `Ocean Trading Replay Controller v0.1.10`
 4. Confirm the study input:
    `Enable Replay Controller = Yes`
 5. Leave command/status path inputs blank unless a different replay-root child
@@ -93,9 +93,19 @@ node D:\paperclip-codex\connectors\sierra-chart\src\replay-orchestration.mjs ^
 - Boundary check passed with existing legacy warnings and no failures:
   `node connectors/validate-boundaries.mjs`
 - ACSIL source compiled successfully to the replay Data folder.
-- End-to-end replay control still requires the study to be loaded once in the
-  replay chartbook and enabled. Until `replay-status.json` appears after a
-  status command, the bridge has not completed its first in-Sierra handshake.
+- v0.1.10 waits for Sierra to report chart data loading complete before calling
+  `StartChartReplayNew`, because Sierra can otherwise accept the call without
+  actually entering replay mode.
+- End-to-end replay control still requires the replay chartbook to be open and
+  the controller study loaded/enabled. Until a fresh `replay-status.json`
+  appears after a status command, the bridge has not completed its in-Sierra
+  handshake.
+- The connector must reject Sierra's blank `1899-12-30` replay date. If that
+  appears in controller status or UI readback, stop the run and reset the Replay
+  Chart start fields before comparing replay to backtest.
+- When falling back to `scripts/start-replay-window.ps1`, the helper must handle
+  Sierra's modal prompts before the replay is considered running:
+  `Clear Trade Data` and `Enter Processing Step in Seconds`.
 
 ## VWAP Handoff
 

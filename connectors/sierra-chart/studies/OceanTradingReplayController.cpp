@@ -6,6 +6,9 @@
 
 #include "sierrachart.h"
 
+#include <algorithm>
+#include <cstdlib>
+#include <cctype>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -15,7 +18,7 @@ SCDLLName("Ocean Trading Replay Controller")
 
 namespace {
 
-const char* VERSION = "v0.1.2";
+const char* VERSION = "v0.1.10";
 const char* DEFAULT_COMMAND_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-command.json";
 const char* DEFAULT_STATUS_PATH = "D:\\Trading\\SierraChart-Replay\\connector-control\\replay-status.json";
 
@@ -24,6 +27,7 @@ struct StudyInputOverrides
     std::string StudyName;
     std::map<int, int> IntInputs;
     std::map<int, double> FloatInputs;
+    std::map<int, std::string> StringInputs;
 };
 
 std::string ReadTextFile(const SCString& path)
@@ -236,6 +240,60 @@ void ParseNumericMapObject(const std::string& json, std::map<int, double>& outpu
     }
 }
 
+void ParseStringMapObject(const std::string& json, std::map<int, std::string>& output)
+{
+    size_t searchFrom = 0;
+    while (searchFrom < json.size())
+    {
+        const size_t keyStart = json.find('"', searchFrom);
+        if (keyStart == std::string::npos)
+            break;
+        const size_t keyEnd = json.find('"', keyStart + 1);
+        if (keyEnd == std::string::npos)
+            break;
+
+        const std::string keyText = json.substr(keyStart + 1, keyEnd - keyStart - 1);
+        const int key = std::atoi(keyText.c_str());
+        const size_t colonPos = json.find(':', keyEnd + 1);
+        if (colonPos == std::string::npos)
+            break;
+
+        size_t valueStart = colonPos + 1;
+        while (valueStart < json.size() && (json[valueStart] == ' ' || json[valueStart] == '\t' || json[valueStart] == '\r' || json[valueStart] == '\n'))
+            ++valueStart;
+
+        if (valueStart >= json.size() || json[valueStart] != '"')
+        {
+            searchFrom = valueStart + 1;
+            continue;
+        }
+
+        std::ostringstream value;
+        bool escaped = false;
+        for (size_t index = valueStart + 1; index < json.size(); ++index)
+        {
+            const char ch = json[index];
+            if (escaped)
+            {
+                value << ch;
+                escaped = false;
+                continue;
+            }
+            if (ch == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+            if (ch == '"')
+            {
+                output[key] = value.str();
+                searchFrom = index + 1;
+                break;
+            }
+        }
+    }
+}
+
 StudyInputOverrides ExtractStudyInputOverrides(const std::string& json)
 {
     StudyInputOverrides overrides;
@@ -253,6 +311,8 @@ StudyInputOverrides ExtractStudyInputOverrides(const std::string& json)
 
     const std::string floatInputsObject = ExtractJsonObject(root, "floatInputs");
     ParseNumericMapObject(floatInputsObject, overrides.FloatInputs);
+    const std::string stringInputsObject = ExtractJsonObject(root, "stringInputs");
+    ParseStringMapObject(stringInputsObject, overrides.StringInputs);
     return overrides;
 }
 
@@ -287,6 +347,97 @@ std::string DateTimeToText(const SCDateTime& value)
     return buffer;
 }
 
+bool IsValidReplayDateTime(const SCDateTime& value)
+{
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    value.GetDateYMD(year, month, day);
+    return year >= 2000;
+}
+
+SCDateTime ReplayAwareCurrentDateTime(SCStudyInterfaceRef sc)
+{
+    if (sc.IsReplayRunning())
+        return sc.CurrentDateTimeForReplay;
+
+    if (sc.ArraySize > 0)
+        return sc.BaseDateTimeIn[sc.ArraySize - 1];
+
+    SCDateTime empty;
+    empty.Clear();
+    return empty;
+}
+
+bool ChartDataReadyForReplayStart(SCStudyInterfaceRef sc, const int chartNumber, std::string& detail)
+{
+    const bool allChartsLoaded = sc.IsChartDataLoadingCompleteForAllCharts() != 0;
+    const bool targetChartDownloading = sc.ChartIsDownloadingHistoricalData(chartNumber) != 0;
+    const bool currentChartDownloading = sc.DownloadingHistoricalData != 0;
+    const bool fullRecalculation = sc.IsFullRecalculation != 0;
+
+    std::ostringstream status;
+    status
+        << "all_charts_loaded=" << (allChartsLoaded ? "yes" : "no")
+        << "; target_chart_downloading=" << (targetChartDownloading ? "yes" : "no")
+        << "; current_chart_downloading=" << (currentChartDownloading ? "yes" : "no")
+        << "; full_recalc=" << (fullRecalculation ? "yes" : "no");
+    detail = status.str();
+
+    return allChartsLoaded && !targetChartDownloading && !currentChartDownloading && !fullRecalculation;
+}
+
+std::string LowerAscii(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+int FindStudyIdByName(SCStudyInterfaceRef sc, const int chartNumber, const std::string& requestedName, std::string& detail)
+{
+    int studyId = sc.GetStudyIDByName(chartNumber, requestedName.c_str(), 0);
+    if (studyId > 0)
+    {
+        detail = "matched exact graph name";
+        return studyId;
+    }
+
+    studyId = sc.GetStudyIDByName(chartNumber, requestedName.c_str(), 1);
+    if (studyId > 0)
+    {
+        detail = "matched short name";
+        return studyId;
+    }
+
+    const std::string requestedLower = LowerAscii(requestedName);
+    std::ostringstream seen;
+    bool firstSeen = true;
+    for (int candidateId = 1; candidateId <= 200; ++candidateId)
+    {
+        const SCString chartStudyName = sc.GetStudyNameFromChart(chartNumber, candidateId);
+        const std::string candidateName = chartStudyName.GetChars();
+        if (candidateName.empty())
+            continue;
+
+        if (!firstSeen)
+            seen << "; ";
+        seen << candidateId << ":" << candidateName;
+        firstSeen = false;
+
+        const std::string candidateLower = LowerAscii(candidateName);
+        if (candidateLower.find(requestedLower) != std::string::npos || requestedLower.find(candidateLower) != std::string::npos)
+        {
+            detail = "matched by scanning chart studies: " + candidateName;
+            return candidateId;
+        }
+    }
+
+    detail = "seen studies: " + seen.str();
+    return 0;
+}
+
 SCString DefaultControlDir(SCStudyInterfaceRef sc)
 {
     return "D:\\Trading\\SierraChart-Replay\\connector-control";
@@ -298,12 +449,18 @@ void WriteStatus(
     const std::string& commandId,
     const std::string& action,
     const std::string& requestedStart,
+    const std::string& requestedEnd,
     const std::string& replaySpeed,
     const std::string& status,
     const std::string& error,
     const std::string& detail = "")
 {
-    SCDateTime currentDateTime = sc.BaseDateTimeIn[sc.ArraySize > 0 ? sc.ArraySize - 1 : 0];
+    SCDateTime currentDateTime = ReplayAwareCurrentDateTime(sc);
+    const std::string effectiveStart =
+        action == "start" && !requestedStart.empty() && sc.IsReplayRunning()
+            ? DateTimeToText(currentDateTime)
+            : "";
+    const int chartReplayStatus = sc.GetReplayStatusFromChart(sc.ChartNumber);
     std::ostringstream json;
     json
         << "{\n"
@@ -314,9 +471,13 @@ void WriteStatus(
         << "  \"status\": \"" << JsonEscape(status) << "\",\n"
         << "  \"chartNumber\": " << sc.ChartNumber << ",\n"
         << "  \"requestedStartDateTime\": \"" << JsonEscape(requestedStart) << "\",\n"
+        << "  \"requestedEndDateTime\": \"" << JsonEscape(requestedEnd) << "\",\n"
+        << "  \"effectiveStartDateTime\": " << (effectiveStart.empty() ? "null" : ("\"" + JsonEscape(effectiveStart) + "\"")) << ",\n"
         << "  \"currentChartDateTime\": \"" << JsonEscape(DateTimeToText(currentDateTime)) << "\",\n"
         << "  \"replaySpeed\": \"" << JsonEscape(replaySpeed) << "\",\n"
         << "  \"isReplayRunning\": " << (sc.IsReplayRunning() ? "true" : "false") << ",\n"
+        << "  \"replayStatus\": " << sc.ReplayStatus << ",\n"
+        << "  \"chartReplayStatus\": " << chartReplayStatus << ",\n"
         << "  \"detail\": " << (detail.empty() ? "null" : ("\"" + JsonEscape(detail) + "\"")) << ",\n"
         << "  \"error\": " << (error.empty() ? "null" : ("\"" + JsonEscape(error) + "\"")) << "\n"
         << "}\n";
@@ -336,15 +497,17 @@ bool ApplyStudyInputOverrides(
         return false;
     }
 
-    const int studyId = sc.GetStudyIDByName(chartNumber, overrides.StudyName.c_str(), 0);
+    std::string lookupDetail;
+    const int studyId = FindStudyIdByName(sc, chartNumber, overrides.StudyName, lookupDetail);
     if (studyId <= 0)
     {
-        error = "Unable to find target study by name";
+        error = "Unable to find target study by name: " + overrides.StudyName + ". " + lookupDetail;
         return false;
     }
 
     std::ostringstream applied;
-    bool first = true;
+    applied << lookupDetail;
+    bool first = lookupDetail.empty();
     for (const auto& entry : overrides.IntInputs)
     {
         const int result = sc.SetChartStudyInputInt(chartNumber, studyId, entry.first, entry.second);
@@ -373,7 +536,60 @@ bool ApplyStudyInputOverrides(
         first = false;
     }
 
+    for (const auto& entry : overrides.StringInputs)
+    {
+        const SCString value(entry.second.c_str());
+        const int result = sc.SetChartStudyInputString(chartNumber, studyId, entry.first, value);
+        if (result == 0)
+        {
+            error = "Failed to apply string study input";
+            return false;
+        }
+        if (!first)
+            applied << "; ";
+        applied << "string[" << entry.first << "]=" << entry.second;
+        first = false;
+    }
+
+    std::ostringstream readback;
+    bool firstReadback = true;
+    for (const auto& entry : overrides.IntInputs)
+    {
+        int value = 0;
+        if (sc.GetChartStudyInputInt(chartNumber, studyId, entry.first, value) != 0)
+        {
+            if (!firstReadback)
+                readback << "; ";
+            readback << "int[" << entry.first << "]=" << value;
+            firstReadback = false;
+        }
+    }
+    for (const auto& entry : overrides.FloatInputs)
+    {
+        double value = 0.0;
+        if (sc.GetChartStudyInputFloat(chartNumber, studyId, entry.first, value) != 0)
+        {
+            if (!firstReadback)
+                readback << "; ";
+            readback << "float[" << entry.first << "]=" << value;
+            firstReadback = false;
+        }
+    }
+    for (const auto& entry : overrides.StringInputs)
+    {
+        SCString value;
+        if (sc.GetChartStudyInputString(chartNumber, studyId, entry.first, value) != 0)
+        {
+            if (!firstReadback)
+                readback << "; ";
+            readback << "string[" << entry.first << "]=" << value.GetChars();
+            firstReadback = false;
+        }
+    }
+
     sc.RecalculateChart(chartNumber);
+    if (!firstReadback)
+        applied << "; readback_before_recalc: " << readback.str();
     detail = applied.str();
     return true;
 }
@@ -388,8 +604,8 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
 
     if (sc.SetDefaults)
     {
-        sc.GraphName = "Ocean Trading Replay Controller v0.1.2";
-        sc.StudyDescription = "Replay-only command bridge for Ocean Trading Sierra connector.";
+        sc.GraphName = "Ocean Trading Replay Controller v0.1.10";
+        sc.StudyDescription = "Replay-only command bridge for Ocean Trading Sierra connector. v0.1.10 waits for chart load completion before launching replay and verifies replay-running state.";
         sc.AutoLoop = 0;
         sc.UpdateAlways = 1;
         sc.GraphRegion = 0;
@@ -426,6 +642,175 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
         }
     }
 
+    SCDateTime& activeEndDateTime = sc.GetPersistentSCDateTime(1);
+    SCDateTime& activeStartDateTime = sc.GetPersistentSCDateTime(2);
+    SCString& activeCommandId = sc.GetPersistentSCString(1);
+    SCString& activeRequestedStart = sc.GetPersistentSCString(2);
+    SCString& activeRequestedEnd = sc.GetPersistentSCString(3);
+    SCString& activeReplaySpeed = sc.GetPersistentSCString(4);
+    const int activeChartNumber = sc.GetPersistentInt(2);
+    int& activeEndArmed = sc.GetPersistentInt(3);
+    int& resumeAfterStartPending = sc.GetPersistentInt(4);
+    int& resumeAfterStartAttempts = sc.GetPersistentInt(5);
+    int& pendingStartRequested = sc.GetPersistentInt(6);
+    int& pendingStartAttempts = sc.GetPersistentInt(7);
+    int& pendingClearTradeData = sc.GetPersistentInt(8);
+    int& pendingSkipEmptyPeriods = sc.GetPersistentInt(9);
+    bool launchedStartThisCall = false;
+
+    if (pendingStartRequested)
+    {
+        std::string readinessDetail;
+        const int chartNumber = activeChartNumber > 0 ? activeChartNumber : sc.ChartNumber;
+        if (!ChartDataReadyForReplayStart(sc, chartNumber, readinessDetail))
+        {
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "start_pending_chart_loading",
+                "",
+                readinessDetail);
+        }
+        else if (pendingStartAttempts < 12)
+        {
+            ++pendingStartAttempts;
+            int speedMultiplier = std::atoi(activeReplaySpeed.GetChars());
+            if (speedMultiplier < 1)
+                speedMultiplier = 1;
+            n_ACSIL::s_ChartReplayParameters replayParameters;
+            replayParameters.ChartNumber = chartNumber;
+            replayParameters.ReplaySpeed = static_cast<float>(speedMultiplier);
+            replayParameters.StartDateTime = activeStartDateTime;
+            replayParameters.SkipEmptyPeriods = pendingSkipEmptyPeriods ? 1 : 0;
+            replayParameters.ReplayMode = n_ACSIL::REPLAY_MODE_ACCURATE_TRADING_SYSTEM_BACK_TEST;
+            replayParameters.ClearExistingTradeSimulationDataForSymbolAndTradeAccount = pendingClearTradeData ? 1 : 0;
+            replayParameters.ChartsToReplay = n_ACSIL::CHARTS_TO_REPLAY_SINGLE_CHART;
+
+            const int startResult = sc.StartChartReplayNew(replayParameters);
+            resumeAfterStartPending = 1;
+            resumeAfterStartAttempts = 0;
+            pendingStartRequested = 0;
+            launchedStartThisCall = true;
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "start_launch_requested",
+                "",
+                readinessDetail + "; launch_api=StartChartReplayNew; start_result=" + std::to_string(startResult));
+        }
+        else
+        {
+            pendingStartRequested = 0;
+            pendingStartAttempts = 0;
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "error",
+                "Replay start was not attempted because chart data never became ready.",
+                readinessDetail);
+        }
+    }
+
+    if (resumeAfterStartPending && !launchedStartThisCall)
+    {
+        if (sc.IsReplayRunning())
+        {
+            resumeAfterStartPending = 0;
+            resumeAfterStartAttempts = 0;
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "replay_running",
+                "",
+                "Replay entered running or paused state after launch request.");
+        }
+        else if (resumeAfterStartAttempts < 12)
+        {
+            ++resumeAfterStartAttempts;
+            sc.ResumeChartReplay(activeChartNumber > 0 ? activeChartNumber : sc.ChartNumber);
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "resume_after_start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "resume_after_start_requested",
+                "",
+                "Replay launch was requested; delayed resume requested while waiting for Sierra to enter replay state.");
+        }
+        else
+        {
+            resumeAfterStartPending = 0;
+            resumeAfterStartAttempts = 0;
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "resume_after_start",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "error",
+                "Replay did not enter running state after delayed resume attempts.",
+                "");
+        }
+    }
+
+    if (sc.IsReplayRunning() && activeEndDateTime.GetAsDouble() > 0.0)
+    {
+        const SCDateTime currentDateTime = ReplayAwareCurrentDateTime(sc);
+        if (IsValidReplayDateTime(currentDateTime) && !activeEndArmed && currentDateTime <= activeEndDateTime)
+            activeEndArmed = 1;
+
+        const bool CurrentIsBeforeRequestedStart = IsValidReplayDateTime(currentDateTime)
+            && activeStartDateTime.GetAsDouble() > 0.0
+            && currentDateTime < activeStartDateTime;
+        const bool CurrentReachedRequestedEnd = IsValidReplayDateTime(currentDateTime)
+            && !CurrentIsBeforeRequestedStart
+            && currentDateTime >= activeEndDateTime;
+
+        if (CurrentReachedRequestedEnd)
+        {
+            sc.StopChartReplay(activeChartNumber > 0 ? activeChartNumber : sc.ChartNumber);
+            WriteStatus(
+                sc,
+                statusPath,
+                activeCommandId.GetChars(),
+                "auto_stop",
+                activeRequestedStart.GetChars(),
+                activeRequestedEnd.GetChars(),
+                activeReplaySpeed.GetChars(),
+                "auto_stop_requested_at_requested_end",
+                "",
+                "Replay current time reached or passed requestedEndDateTime.");
+            activeEndDateTime.Clear();
+            activeStartDateTime.Clear();
+            activeEndArmed = 0;
+        }
+    }
+
     const std::string commandText = ReadTextFile(commandPath);
     if (commandText.empty())
         return;
@@ -443,6 +828,7 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
 
     const std::string action = ExtractJsonString(commandText, "action");
     const std::string requestedStart = ExtractJsonString(commandText, "startDateTime");
+    const std::string requestedEnd = ExtractJsonString(commandText, "endDateTime");
     const std::string replaySpeed = ExtractJsonString(commandText, "replaySpeed");
     const int chartNumber = ExtractJsonInt(commandText, "chartNumber", sc.ChartNumber);
     const int speedMultiplier = ExtractJsonInt(commandText, "replaySpeedMultiplier", 480);
@@ -471,28 +857,62 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
         else
         {
         SCDateTime startDateTime;
+        SCDateTime endDateTime;
         if (!ParseDateTime(requestedStart, startDateTime))
         {
             error = "Invalid or missing startDateTime";
             status = "error";
         }
+        else if (!requestedEnd.empty() && !ParseDateTime(requestedEnd, endDateTime))
+        {
+            error = "Invalid endDateTime";
+            status = "error";
+        }
         else
         {
-            n_ACSIL::s_ChartReplayParameters params;
-            params.ChartNumber = chartNumber;
-            params.StartDateTime = startDateTime;
-            params.ReplaySpeed = speedMultiplier;
-            params.SkipEmptyPeriods = skipEmptyPeriods;
-            params.ClearExistingTradeSimulationDataForSymbolAndTradeAccount = clearTradeData;
-            params.ReplayMode = n_ACSIL::REPLAY_MODE_ACCURATE_TRADING_SYSTEM_BACK_TEST;
-            sc.StartChartReplayNew(params);
-            status = "start_requested";
+            activeStartDateTime = startDateTime;
+            if (requestedEnd.empty())
+                activeEndDateTime.Clear();
+            else
+                activeEndDateTime = endDateTime;
+            activeEndArmed = 0;
+            pendingStartRequested = 1;
+            pendingStartAttempts = 0;
+            pendingClearTradeData = clearTradeData ? 1 : 0;
+            pendingSkipEmptyPeriods = skipEmptyPeriods ? 1 : 0;
+            resumeAfterStartPending = 0;
+            resumeAfterStartAttempts = 0;
+            activeCommandId = commandId.c_str();
+            activeRequestedStart = requestedStart.c_str();
+            activeRequestedEnd = requestedEnd.c_str();
+            activeReplaySpeed = replaySpeed.c_str();
+            sc.SetPersistentInt(2, chartNumber);
+            status = "start_pending_chart_ready";
+            if (!requestedEnd.empty())
+            {
+                if (!detail.empty())
+                    detail += "; ";
+                detail += "launch_api=StartChartReplayNew; clear_trade_data_requested=" + std::string(clearTradeData ? "yes" : "no") + "; controller will wait for chart data before launching and auto-stop at requestedEndDateTime=" + requestedEnd;
+            }
+            else
+            {
+                if (!detail.empty())
+                    detail += "; ";
+                detail += "launch_api=StartChartReplayNew; clear_trade_data_requested=" + std::string(clearTradeData ? "yes" : "no") + "; controller will wait for chart data before launching";
+            }
         }
         }
     }
     else if (action == "stop")
     {
         sc.StopChartReplay(chartNumber);
+        activeEndDateTime.Clear();
+        activeStartDateTime.Clear();
+        activeEndArmed = 0;
+        resumeAfterStartPending = 0;
+        resumeAfterStartAttempts = 0;
+        pendingStartRequested = 0;
+        pendingStartAttempts = 0;
         status = "stop_requested";
     }
     else if (action == "pause")
@@ -515,5 +935,5 @@ SCSFExport scsf_OceanTradingReplayController(SCStudyInterfaceRef sc)
         status = "error";
     }
 
-    WriteStatus(sc, statusPath, commandId, action, requestedStart, replaySpeed, status, error, detail);
+    WriteStatus(sc, statusPath, commandId, action, requestedStart, requestedEnd, replaySpeed, status, error, detail);
 }

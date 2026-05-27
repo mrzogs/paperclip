@@ -11,7 +11,7 @@
       "tp1": 0,
       "tp2": 2,
       "tp3": 3,
-      "confluenceMode": 4,
+      "confluenceMode": 3,
       "hermesTpAdaptation": "no"
     }
   },
@@ -24,12 +24,13 @@
       "tpSplit": "0/4/1",
       "tp1": 0,
       "tp2": 4,
-      "tp3": 1
+      "tp3": 1,
+      "confluenceMode": 2
     },
     "controllerInputs": {
-      "studyName": "Ocean Trading VWAP Momentum Reclaim",
+      "studyName": "Ocean Trading VWAP Momentum Reclaim 2R Capped",
       "intInputs": {
-        "0": 5,
+        "0": 4,
         "3": 5,
         "4": 10,
         "7": 3,
@@ -37,13 +38,18 @@
         "9": 3,
         "11": 1,
         "12": 1,
+        "13": 1,
         "14": 1,
         "17": 0,
         "18": 4,
         "19": 1,
         "20": 1,
-        "21": 4,
-        "27": 0
+        "21": 2,
+        "27": 0,
+        "31": 1,
+        "33": 1,
+        "34": 2,
+        "35": 1
       },
       "floatInputs": {
         "2": 350,
@@ -54,7 +60,13 @@
         "23": 0.35,
         "24": 1.15,
         "25": 18,
-        "26": 110
+        "26": 110,
+        "28": 0.75,
+        "29": 1.5,
+        "30": 2.75
+      },
+      "stringInputs": {
+        "32": "D:\\paperclip-codex\\.paperclip-home\\instances\\default\\projects\\378244c6-8e72-41b2-a4ab-27e9cca17a04\\b3e08754-f0f4-4860-bc06-2bf07c525baa\\_default\\backtesting\\results\\regime-labels-mnq-mnqm26_fut_cme-15m.csv"
       }
     },
     "strategyParameters": {
@@ -102,6 +114,195 @@
       "minHealthyAtrPoints": 10,
       "maxExtremeAtrPoints": 125,
       "breakevenPlusPoints": 1
+    }
+  },
+  "v216_session_profiles": {
+    "label": "VWAP Momentum Reclaim v2.1.16 Hermes session profiles replay target",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "version": "v2.1.17-hermes-volume-profile",
+      "schema": 7,
+      "quantity": 5,
+      "confluenceMode": 5,
+      "hermesSessionProfileMode": "Auto Asia/London/US",
+      "hermesTpAdaptation": "no"
+    },
+    "controllerInputs": {
+      "studyName": "Ocean Trading VWAP Momentum Reclaim 2R Capped",
+      "intInputs": {
+        "0": 4,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "20": 1,
+        "21": 5,
+        "27": 0,
+        "31": 1,
+        "33": 1,
+        "34": 5,
+        "35": 1,
+        "36": 1
+      },
+      "stringInputs": {
+        "32": "D:\\paperclip-codex\\.paperclip-home\\instances\\default\\projects\\378244c6-8e72-41b2-a4ab-27e9cca17a04\\b3e08754-f0f4-4860-bc06-2bf07c525baa\\_default\\backtesting\\results\\regime-labels-mnq-mnqm26_fut_cme-15m.csv"
+      }
+    },
+    "sessionProfiles": {
+      "Asia": {
+        "filter": "trend_markov_no_range_volume",
+        "targets": "2 @ 1.50R, 3 @ 2.25R",
+        "maxTradesPerSession": 6,
+        "pullbackAtr": 3.0,
+        "stopAtr": 2.5,
+        "breakevenPlusPoints": 1.25
+      },
+      "London": {
+        "filter": "trend_markov_no_range_volume",
+        "targets": "2 @ 1.50R, 3 @ 2.25R",
+        "maxTradesPerSession": 6,
+        "pullbackAtr": 3.0,
+        "stopAtr": 2.5,
+        "breakevenPlusPoints": 1.25
+      },
+      "US": {
+        "filter": "trend_markov",
+        "targets": "5 @ 1.50R",
+        "maxTradesPerSession": 3,
+        "pullbackAtr": 1.25,
+        "stopAtr": 2.25,
+        "breakevenPlusPoints": 0.75
+      }
+    }
+  },
+  "v218_session_profit_map": {
+    "label": "VWAP Momentum Reclaim v2.1.18 Hermes session profit map",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "version": "v2.1.18-hermes-session-profit-map",
+      "schema": 7,
+      "confluenceMode": 5,
+      "hermesSessionProfileMode": "Auto Asia/London/US",
+      "hermesTpAdaptation": "no"
+    },
+    "controllerInputs": {
+      "studyName": "Ocean Trading VWAP Momentum Reclaim 2R Capped",
+      "intInputs": {
+        "0": 4,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "20": 1,
+        "21": 5,
+        "27": 0,
+        "31": 1,
+        "33": 1,
+        "34": -1,
+        "35": 1,
+        "36": 1
+      },
+      "stringInputs": {
+        "32": "D:\\paperclip-codex\\.paperclip-home\\instances\\default\\projects\\378244c6-8e72-41b2-a4ab-27e9cca17a04\\b3e08754-f0f4-4860-bc06-2bf07c525baa\\_default\\backtesting\\results\\regime-labels-mnq-mnqm26_fut_cme-15m.csv"
+      }
+    },
+    "sessionProfiles": {
+      "Asia": {
+        "source": "candidate_88",
+        "filter": "trend_markov_no_range",
+        "quantity": 5,
+        "targets": "4 @ 1.50R, 1 @ 2.75R",
+        "maxTradesPerSession": 3,
+        "pullbackAtr": 2.75,
+        "stopAtr": 2.0,
+        "breakevenPlusPoints": 1.0
+      },
+      "London": {
+        "source": "candidate_98",
+        "filter": "trend_markov_no_range",
+        "quantity": 6,
+        "targets": "1 @ 1.00R, 2 @ 2.00R, 3 @ 2.50R",
+        "maxTradesPerSession": 6,
+        "pullbackAtr": 2.25,
+        "stopAtr": 1.25,
+        "breakevenPlusPoints": 1.0
+      },
+      "US": {
+        "source": "corrected_us90_short_only",
+        "filter": "trend_markov",
+        "quantity": 5,
+        "direction": "short_only",
+        "targets": "5 @ 1.50R",
+        "maxTradesPerSession": 3,
+        "pullbackAtr": 1.5,
+        "stopAtr": 2.0,
+        "breakevenPlusPoints": 0.75
+      }
+    }
+  },
+  "v221_us_profit_profile": {
+    "label": "VWAP Momentum Reclaim v2.1.22 US session profit profile with replay diagnostics",
+    "expectedStudy": "Ocean Trading VWAP Momentum Reclaim",
+    "expectedStudySettings": {
+      "version": "v2.1.22-replay-exec-state-diagnostics",
+      "schema": 7,
+      "quantity": 5,
+      "confluenceMode": 5,
+      "hermesSessionProfileMode": "Auto Asia/London/US",
+      "hermesTpAdaptation": "no"
+    },
+    "controllerInputs": {
+      "studyName": "Ocean Trading VWAP Momentum Reclaim 2R Capped",
+      "intInputs": {
+        "0": 4,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "20": 1,
+        "21": 5,
+        "27": 0,
+        "31": 1,
+        "33": 1,
+        "34": -1,
+        "35": 1,
+        "36": 1
+      },
+      "stringInputs": {
+        "32": "D:\\paperclip-codex\\.paperclip-home\\instances\\default\\projects\\378244c6-8e72-41b2-a4ab-27e9cca17a04\\b3e08754-f0f4-4860-bc06-2bf07c525baa\\_default\\backtesting\\results\\regime-labels-mnq-mnqm26_fut_cme-15m.csv"
+      }
+    },
+    "sessionProfiles": {
+      "Asia": {
+        "source": "asia_opt_085",
+        "filter": "body_confirmed",
+        "quantity": 5,
+        "targets": "5 @ 1.50R",
+        "maxTradesPerSession": 10,
+        "pullbackAtr": 2.75,
+        "stopAtr": 2.0,
+        "breakevenPlusPoints": 1.0
+      },
+      "London": {
+        "source": "london_opt_146",
+        "filter": "trend_markov_volume",
+        "quantity": 5,
+        "targets": "5 @ 2.00R",
+        "maxTradesPerSession": 6,
+        "pullbackAtr": 2.0,
+        "stopAtr": 2.0,
+        "breakevenPlusPoints": 1.0
+      },
+      "US": {
+        "source": "us_opt_262_us90",
+        "filter": "trend_markov_no_range_volume",
+        "quantity": 5,
+        "targets": "5 @ 1.50R",
+        "maxTradesPerSession": 3,
+        "pullbackAtr": 1.25,
+        "stopAtr": 2.25,
+        "breakevenPlusPoints": 1.0
+      }
     }
   }
 }
